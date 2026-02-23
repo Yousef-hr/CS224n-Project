@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from dataset import Banking77Dataset, get_label_to_idx, load_banking77
 from eb_jepa_utils import setup_device, setup_seed, save_checkpoint
-from model import JEPATextClassifier, cosine_similarity_ce_loss
+from model import JEPATextClassifier, cosine_similarity_loss
 
 
 def collate_fn(batch):
@@ -37,8 +37,8 @@ def train_epoch(
         use_amp = device.type == "cuda"
         with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp):
             input_emb = model.encode_input(texts)
-            logits = model(input_emb)
-            loss = cosine_similarity_ce_loss(logits, labels)
+            logits, pred_emb = model(input_emb, return_embeddings=True)
+            loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -61,8 +61,8 @@ def eval_epoch(
     for texts, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
         input_emb = model.encode_input(texts)
-        logits = model(input_emb)
-        loss = cosine_similarity_ce_loss(logits, labels)
+        logits, pred_emb = model(input_emb, return_embeddings=True)
+        loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
         total_loss += loss.item() * labels.size(0)
         pred = logits.argmax(dim=1)
         correct += (pred == labels).sum().item()

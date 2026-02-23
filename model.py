@@ -2,7 +2,7 @@
 JEPA-style text classification model.
 - Frozen Open-CLIP encoder for input text and labels
 - Predictor (Projector from eb_jepa) maps input embeddings to output space
-- Cosine similarity + temperature scaling → logits → cross-entropy loss
+- Loss: 1 - cosine_similarity(pred_emb, target_emb) minimized directly
 
 Follows JEPAProbe pattern from eb_jepa: frozen encoder + trainable head.
 """
@@ -126,9 +126,14 @@ class JEPATextClassifier(nn.Module):
         return logits
 
 
-def cosine_similarity_ce_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+def cosine_similarity_loss(
+    pred_emb: torch.Tensor, label_embeddings: torch.Tensor, targets: torch.Tensor
+) -> torch.Tensor:
     """
-    Cross-entropy loss where logits come from cosine similarity / temperature.
-    L_CE = -log(P_gold) with P = softmax(logits).
+    Loss = 1 - cosine_similarity(pred_emb, target_emb).
+    pred_emb and label_embeddings should be L2-normalized.
+    targets: [B] class indices.
     """
-    return nn.functional.cross_entropy(logits, targets)
+    target_emb = label_embeddings[targets]  # [B, D]
+    cos_sim = (pred_emb * target_emb).sum(dim=-1)  # [B]
+    return (1 - cos_sim).mean()
