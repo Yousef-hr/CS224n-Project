@@ -37,7 +37,7 @@ def train_epoch(
         use_amp = device.type == "cuda"
         with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp):
             input_emb = model.encode_input(texts)
-            logits, pred_emb = model(input_emb, return_embeddings=True)
+            pred_emb = model(input_emb)
             loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
         optimizer.zero_grad()
         loss.backward()
@@ -61,10 +61,10 @@ def eval_epoch(
     for texts, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
         input_emb = model.encode_input(texts)
-        logits, pred_emb = model(input_emb, return_embeddings=True)
+        pred_emb = model(input_emb)
         loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
         total_loss += loss.item() * labels.size(0)
-        pred = logits.argmax(dim=1)
+        pred = (pred_emb @ model.head.label_embeddings.T).argmax(dim=1)
         correct += (pred == labels).sum().item()
         n += labels.size(0)
     avg_loss = total_loss / n if n > 0 else 0.0
@@ -78,7 +78,6 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--temperature", type=float, default=0.07)
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--predictor_hidden", type=int, default=512)
@@ -105,7 +104,6 @@ def main():
         clip_model_name=args.clip_model,
         clip_pretrained=args.clip_pretrained,
         predictor_hidden_dim=args.predictor_hidden,
-        temperature=args.temperature,
         device=device,
     )
     optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.lr)

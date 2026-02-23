@@ -40,27 +40,24 @@ class CLIPTextEncoder(nn.Module):
         return self.model.encode_text(tokens)
 
 
-class CosineSimHead(nn.Module):
-    """Predictor + cosine similarity to label embeddings. Maps Sx → logits."""
+class PredictorHead(nn.Module):
+    """Predictor that maps Sx → pred_emb (L2-normalized). Holds label_embeddings for loss/inference."""
 
-    def __init__(self, predictor: nn.Module, label_embeddings: torch.Tensor, temperature: float):
+    def __init__(self, predictor: nn.Module, label_embeddings: torch.Tensor):
         super().__init__()
         self.predictor = predictor
         self.register_buffer("label_embeddings", label_embeddings)
-        self.temperature = temperature
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         pred_emb = self.predictor(x)
-        pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
-        logits = pred_emb @ self.label_embeddings.T / self.temperature
-        return logits
+        return pred_emb / pred_emb.norm(dim=-1, keepdim=True)
 
 
 class JEPATextClassifier(nn.Module):
     """
     JEPA-inspired text classifier following eb_jepa JEPAProbe pattern:
     - Frozen encoder (CLIP) → Sx
-    - Trainable head (Projector + cosine sim) → logits
+    - Trainable head (Projector) → pred_emb (normalized)
     """
 
     def __init__(
@@ -68,12 +65,10 @@ class JEPATextClassifier(nn.Module):
         clip_model_name: str = "ViT-B-32",
         clip_pretrained: str = "laion2b_s34b_b79k",
         predictor_hidden_dim: int = 512,
-        temperature: float = 0.07,
         device: str | torch.device = "cuda",
     ):
         super().__init__()
         self.device = device if isinstance(device, torch.device) else torch.device(device)
-        self.temperature = temperature
 
         # Load CLIP
         model, tokenizer = get_clip_model_and_tokenizer(clip_model_name, clip_pretrained)
@@ -92,7 +87,7 @@ class JEPATextClassifier(nn.Module):
         # Label embeddings (frozen)
         label_emb = self._compute_label_embeddings()
 
-        self.head = CosineSimHead(predictor, label_emb, temperature).to(self.device)
+        self.head = PredictorHead(predictor, label_emb).to(self.device)
 
     def _compute_label_embeddings(self) -> torch.Tensor:
         """Encode label strings with frozen CLIP and L2-normalize."""
@@ -105,25 +100,15 @@ class JEPATextClassifier(nn.Module):
         """Encode input texts with frozen CLIP. Returns Sx [batch, embed_dim]."""
         return self.encoder(texts)
 
-    def forward(
-        self,
-        input_embeddings: torch.Tensor,
-        return_embeddings: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, input_embeddings: torch.Tensor) -> torch.Tensor:
         """
         Args:
             input_embeddings: Sx from encode_input, [batch, embed_dim]
-            return_embeddings: if True, also return predicted embeddings
 
         Returns:
-            logits [batch, num_classes], or (logits, pred_emb) if return_embeddings
+            pred_emb [batch, embed_dim] (L2-normalized)
         """
-        logits = self.head(input_embeddings)
-        if return_embeddings:
-            pred_emb = self.head.predictor(input_embeddings)
-            pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
-            return logits, pred_emb
-        return logits
+        return self.head(input_embeddings)
 
 
 def cosine_similarity_loss(

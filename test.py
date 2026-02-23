@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import Banking77Dataset, LABELS, get_label_to_idx, load_banking77
+from dataset import Banking77Dataset, get_label_to_idx, get_labels, load_banking77
 from eb_jepa_utils import load_checkpoint, setup_device
 from model import JEPATextClassifier
 
@@ -22,7 +22,7 @@ def collate_fn(batch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="AG_news_dataset", help="Path to AG_news_dataset")
+    parser.add_argument("--cache_dir", type=str, default=None, help="HuggingFace cache dir for Banking77")
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best.pt")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--device", type=str, default="auto")
@@ -59,8 +59,8 @@ def main():
         for texts, labels in test_loader:
             labels = labels.to(device)
             input_emb = model.encode_input(texts)
-            logits = model(input_emb)
-            pred = logits.argmax(dim=1)
+            pred_emb = model(input_emb)
+            pred = (pred_emb @ model.head.label_embeddings.T).argmax(dim=1)
             all_preds.extend(pred.cpu().tolist())
             all_labels.extend(labels.cpu().tolist())
             correct += (pred == labels).sum().item()
