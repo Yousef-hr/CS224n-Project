@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from architectures import Projector
 from utils.nn import init_module_weights
-from encoders.OpenCLIP import OpenCLIPTextEncoder, get_OpenCLIP_model_and_tokenizer
+from encoders.OpenCLIP import OpenCLIPTextEncoder, get_clip_model_and_tokenizer
 
 class PredictorHead(nn.Module):
     """Predictor that maps Sx → pred_emb (L2-normalized). Holds label_embeddings for loss/inference."""
@@ -45,7 +45,7 @@ class JEPATextClassifier(nn.Module):
         self.device = device if isinstance(device, torch.device) else torch.device(device)
 
         # Load CLIP
-        model, tokenizer = get_OpenCLIP_model_and_tokenizer(clip_model_name, clip_pretrained)
+        model, tokenizer = get_clip_model_and_tokenizer(clip_model_name, clip_pretrained)
         self.encoder = OpenCLIPTextEncoder(model, tokenizer, self.device).to(self.device)
 
         # Embedding dimension

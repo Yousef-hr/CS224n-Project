@@ -12,7 +12,8 @@ from tqdm import tqdm
 
 from dataset.banking77 import Banking77Dataset, get_labels, load_banking77_dataset
 from utils.train import setup_device, setup_seed, save_checkpoint
-from model import JEPATextClassifier, cosine_similarity_loss
+from model import JEPATextClassifier
+from losses import cosine_similarity_loss
 
 
 def collate_fn(batch):
