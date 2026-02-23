@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Checkpoints and data
+checkpoints/
+*.pt
+*.pth
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
