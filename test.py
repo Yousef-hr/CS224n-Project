@@ -9,16 +9,15 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import Banking77Dataset, get_label_to_idx, get_labels, load_banking77
-from eb_jepa_utils import load_checkpoint, setup_device
-from model import JEPATextClassifier
+from dataset.banking77 import Banking77Dataset, get_labels, load_banking77_dataset
+from utils.train import setup_device, load_checkpoint
 
+from model import JEPATextClassifier
 
 def collate_fn(batch):
     texts = [b[0] for b in batch]
     labels = torch.tensor([b[1] for b in batch], dtype=torch.long)
     return texts, labels
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -34,14 +33,15 @@ def main():
     ckpt_path = Path(args.checkpoint)
 
     # Data
-    _, test_samples = load_banking77(cache_dir=args.cache_dir)
-    label_to_idx = get_label_to_idx()
-    idx_to_label = {v: k for k, v in label_to_idx.items()}
-    test_ds = Banking77Dataset(test_samples, label_to_idx)
+    ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
+    labels = get_labels(cache_dir=args.cache_dir)
+    idx_to_label = {i: lab for i, lab in enumerate(labels)}
+    test_ds = Banking77Dataset(ds_dict["test"])
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn)
 
     # Model
     model = JEPATextClassifier(
+        labels=labels,
         clip_model_name=args.clip_model,
         clip_pretrained=args.clip_pretrained,
         device=device,
@@ -70,7 +70,7 @@ def main():
     print(f"Test accuracy: {acc:.4f} ({correct}/{total})")
 
     # Per-class metrics
-    n_classes = len(get_labels())
+    n_classes = len(idx_to_label)
     class_correct = [0] * n_classes
     class_total = [0] * n_classes
     for p, l in zip(all_preds, all_labels):

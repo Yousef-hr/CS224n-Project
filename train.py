@@ -10,9 +10,10 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import Banking77Dataset, get_label_to_idx, load_banking77
-from eb_jepa_utils import setup_device, setup_seed, save_checkpoint
-from model import JEPATextClassifier, cosine_similarity_loss
+from dataset.banking77 import Banking77Dataset, get_labels, load_banking77_dataset
+from utils.train import setup_device, setup_seed, save_checkpoint
+from model import JEPATextClassifier
+from losses import cosine_similarity_loss
 
 
 def collate_fn(batch):
@@ -92,15 +93,16 @@ def main():
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # Data
-    train_samples, test_samples = load_banking77(cache_dir=args.cache_dir)
-    label_to_idx = get_label_to_idx()
-    train_ds = Banking77Dataset(train_samples, label_to_idx)
-    test_ds = Banking77Dataset(test_samples, label_to_idx)
+    ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
+    labels = get_labels(cache_dir=args.cache_dir)
+    train_ds = Banking77Dataset(ds_dict["train"])
+    test_ds = Banking77Dataset(ds_dict["test"])
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
 
     # Model
     model = JEPATextClassifier(
+        labels=labels,
         clip_model_name=args.clip_model,
         clip_pretrained=args.clip_pretrained,
         predictor_hidden_dim=args.predictor_hidden,
