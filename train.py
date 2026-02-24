@@ -1,5 +1,5 @@
 """
-Train JEPA text classifier on Banking77.
+Train JEPA text classifier on intent datasets.
 Uses eb_jepa utilities: setup_device, setup_seed, save_checkpoint.
 """
 
@@ -14,7 +14,7 @@ from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labe
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from utils.train import setup_device, setup_seed, save_checkpoint
 from model import JEPATextClassifier
-from losses import cosine_similarity_loss
+from losses import cosine_similarity_loss, sigreg_loss
 
 
 def collate_fn(batch):
@@ -29,9 +29,13 @@ def train_epoch(
     loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
-) -> float:
+    use_sigreg: bool = False,
+    sigreg_weight: float = 0.0,
+    sigreg_target_std: float = 1.0,
+) -> tuple[float, float]:
     model.train()
     total_loss = 0.0
+    total_sigreg = 0.0
     n = 0
     pbar = tqdm(loader, desc="Train")
     for texts, labels in pbar:
@@ -40,14 +44,19 @@ def train_epoch(
         with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp):
             input_emb = model.encode_input(texts)
             pred_emb = model(input_emb)
-            loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
+            main_loss = cosine_similarity_loss(pred_emb, model.head.label_embeddings, labels)
+            sig_loss = sigreg_loss(pred_emb, target_std=sigreg_target_std) if use_sigreg else torch.zeros_like(main_loss)
+            loss = main_loss + sigreg_weight * sig_loss
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * labels.size(0)
+        total_sigreg += sig_loss.item() * labels.size(0)
         n += labels.size(0)
-        pbar.set_postfix(loss=loss.item())
-    return total_loss / n if n > 0 else 0.0
+        pbar.set_postfix(loss=loss.item(), sigreg=sig_loss.item())
+    avg_loss = total_loss / n if n > 0 else 0.0
+    avg_sigreg = total_sigreg / n if n > 0 else 0.0
+    return avg_loss, avg_sigreg
 
 
 @torch.no_grad()
@@ -86,7 +95,11 @@ def main():
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--head_type", type=str, choices=["baseline", "moe"], default="baseline")
     parser.add_argument("--predictor_hidden", type=int, default=512)
+    parser.add_argument("--baseline_dropout", type=float, default=0.0, help="Dropout probability for baseline head only")
     parser.add_argument("--moe_num_experts", type=int, default=4)
+    parser.add_argument("--use_sigreg", action="store_true", help="Enable Sigma regularization auxiliary loss")
+    parser.add_argument("--sigreg_weight", type=float, default=0.1, help="Weight for SigReg loss term")
+    parser.add_argument("--sigreg_target_std", type=float, default=1.0, help="Target per-dimension std for SigReg")
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--seed", type=int, default=42)
@@ -118,6 +131,7 @@ def main():
         clip_pretrained=args.clip_pretrained,
         head_type=args.head_type,
         predictor_hidden_dim=args.predictor_hidden,
+        baseline_dropout=args.baseline_dropout,
         moe_num_experts=args.moe_num_experts,
         device=device,
     )
@@ -125,9 +139,20 @@ def main():
 
     best_acc = 0.0
     for ep in range(args.epochs):
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss, train_sigreg = train_epoch(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            use_sigreg=args.use_sigreg,
+            sigreg_weight=args.sigreg_weight,
+            sigreg_target_std=args.sigreg_target_std,
+        )
         eval_loss, eval_acc = eval_epoch(model, test_loader, device)
-        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
+        print(
+            f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | train_sigreg={train_sigreg:.4f} "
+            f"| eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}"
+        )
         if eval_acc > best_acc:
             best_acc = eval_acc
             save_checkpoint(

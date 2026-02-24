@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--head_type", type=str, choices=["baseline", "moe"], default="baseline")
     parser.add_argument("--predictor_hidden", type=int, default=512)
+    parser.add_argument("--baseline_dropout", type=float, default=0.0)
     parser.add_argument("--moe_num_experts", type=int, default=4)
     args = parser.parse_args()
 
@@ -57,6 +58,7 @@ def main():
         clip_pretrained=args.clip_pretrained,
         head_type=args.head_type,
         predictor_hidden_dim=args.predictor_hidden,
+        baseline_dropout=args.baseline_dropout,
         moe_num_experts=args.moe_num_experts,
         device=device,
     )
