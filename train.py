@@ -10,7 +10,8 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset.banking77 import Banking77Dataset, get_labels, load_banking77_dataset
+from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
+from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from utils.train import setup_device, setup_seed, save_checkpoint
 from model import JEPATextClassifier
 from losses import cosine_similarity_loss
@@ -75,13 +76,17 @@ def eval_epoch(
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, choices=["banking77", "clinc_oos"], default="banking77")
+    parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus")
     parser.add_argument("--cache_dir", type=str, default=None, help="HuggingFace cache dir for Banking77 (default: ~/.cache/huggingface)")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
+    parser.add_argument("--head_type", type=str, choices=["baseline", "moe"], default="baseline")
     parser.add_argument("--predictor_hidden", type=int, default=512)
+    parser.add_argument("--moe_num_experts", type=int, default=4)
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--seed", type=int, default=42)
@@ -93,10 +98,16 @@ def main():
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # Data
-    ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
-    labels = get_labels(cache_dir=args.cache_dir)
-    train_ds = Banking77Dataset(ds_dict["train"])
-    test_ds = Banking77Dataset(ds_dict["test"])
+    if args.dataset == "banking77":
+        ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
+        labels = get_banking77_labels(cache_dir=args.cache_dir)
+        train_ds = Banking77Dataset(ds_dict["train"])
+        test_ds = Banking77Dataset(ds_dict["test"])
+    else:
+        ds_dict = load_clinc_oos_dataset(config=args.clinc_config, cache_dir=args.cache_dir)
+        labels = get_clinc_labels(config=args.clinc_config, cache_dir=args.cache_dir)
+        train_ds = CLINCOOSDataset(ds_dict["train"])
+        test_ds = CLINCOOSDataset(ds_dict["test"])
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
 
@@ -105,7 +116,9 @@ def main():
         labels=labels,
         clip_model_name=args.clip_model,
         clip_pretrained=args.clip_pretrained,
+        head_type=args.head_type,
         predictor_hidden_dim=args.predictor_hidden,
+        moe_num_experts=args.moe_num_experts,
         device=device,
     )
     optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.lr)

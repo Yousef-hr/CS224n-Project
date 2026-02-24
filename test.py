@@ -9,7 +9,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from dataset.banking77 import Banking77Dataset, get_labels, load_banking77_dataset
+from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
+from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from utils.train import setup_device, load_checkpoint
 
 from model import JEPATextClassifier
@@ -21,22 +22,32 @@ def collate_fn(batch):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, choices=["banking77", "clinc_oos"], default="banking77")
+    parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus")
     parser.add_argument("--cache_dir", type=str, default=None, help="HuggingFace cache dir for Banking77")
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best.pt")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
+    parser.add_argument("--head_type", type=str, choices=["baseline", "moe"], default="baseline")
+    parser.add_argument("--predictor_hidden", type=int, default=512)
+    parser.add_argument("--moe_num_experts", type=int, default=4)
     args = parser.parse_args()
 
     device = setup_device(args.device)
     ckpt_path = Path(args.checkpoint)
 
     # Data
-    ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
-    labels = get_labels(cache_dir=args.cache_dir)
+    if args.dataset == "banking77":
+        ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
+        labels = get_banking77_labels(cache_dir=args.cache_dir)
+        test_ds = Banking77Dataset(ds_dict["test"])
+    else:
+        ds_dict = load_clinc_oos_dataset(config=args.clinc_config, cache_dir=args.cache_dir)
+        labels = get_clinc_labels(config=args.clinc_config, cache_dir=args.cache_dir)
+        test_ds = CLINCOOSDataset(ds_dict["test"])
     idx_to_label = {i: lab for i, lab in enumerate(labels)}
-    test_ds = Banking77Dataset(ds_dict["test"])
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn)
 
     # Model
@@ -44,6 +55,9 @@ def main():
         labels=labels,
         clip_model_name=args.clip_model,
         clip_pretrained=args.clip_pretrained,
+        head_type=args.head_type,
+        predictor_hidden_dim=args.predictor_hidden,
+        moe_num_experts=args.moe_num_experts,
         device=device,
     )
     load_checkpoint(ckpt_path, model, device=device)
