@@ -47,10 +47,14 @@ class MoEPredictor(nn.Module):
         for expert in self.experts:
             expert.apply(lambda m: init_module_weights(m, std=0.02))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_with_diagnostics(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         gate_probs = torch.softmax(self.gate(x), dim=-1)  # [B, E]
         expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)  # [B, E, D]
         mixed = torch.sum(gate_probs.unsqueeze(-1) * expert_outputs, dim=1)  # [B, D]
+        return mixed, gate_probs, expert_outputs
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        mixed, _, _ = self.forward_with_diagnostics(x)
         return mixed
 
 class MoEPredictorHead(nn.Module):
@@ -64,6 +68,11 @@ class MoEPredictorHead(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         pred_emb = self.predictor(x)
         return pred_emb / pred_emb.norm(dim=-1, keepdim=True)
+
+    def forward_with_diagnostics(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        pred_emb, gate_probs, expert_outputs = self.predictor.forward_with_diagnostics(x)
+        pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
+        return pred_emb, gate_probs, expert_outputs
 
 class JEPATextClassifier(nn.Module):
     """
@@ -140,5 +149,17 @@ class JEPATextClassifier(nn.Module):
             pred_emb [batch, embed_dim] (L2-normalized)
         """
         return self.head(input_embeddings)
+
+    def predict_with_diagnostics(
+        self, input_embeddings: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        """
+        Returns prediction plus optional MoE diagnostics.
+        For baseline head, diagnostics are None.
+        """
+        if self.head_type == "moe":
+            pred_emb, gate_probs, expert_outputs = self.head.forward_with_diagnostics(input_embeddings)
+            return pred_emb, gate_probs, expert_outputs
+        return self.head(input_embeddings), None, None
 
 

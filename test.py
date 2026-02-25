@@ -12,6 +12,14 @@ from torch.utils.data import DataLoader
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from utils.train import setup_device, load_checkpoint
+from repr_metrics import (
+    conditional_routing_entropy,
+    covariance_spectrum,
+    effective_rank,
+    expert_pairwise_cka,
+    expert_usage_entropy,
+    variance_ratio,
+)
 
 from model import JEPATextClassifier
 
@@ -34,6 +42,8 @@ def main():
     parser.add_argument("--predictor_hidden", type=int, default=512)
     parser.add_argument("--baseline_dropout", type=float, default=0.0)
     parser.add_argument("--moe_num_experts", type=int, default=4)
+    parser.add_argument("--report_repr_metrics", action="store_true", help="Compute representation-level metrics")
+    parser.add_argument("--repr_topk_eigs", type=int, default=10, help="Top-k eigenvalues to print from covariance spectrum")
     args = parser.parse_args()
 
     device = setup_device(args.device)
@@ -70,17 +80,29 @@ def main():
     all_labels = []
     correct = 0
     total = 0
+    all_pred_emb = []
+    all_target_emb = []
+    all_gate_probs = []
+    all_expert_outputs = []
 
     with torch.no_grad():
         for texts, labels in test_loader:
             labels = labels.to(device)
             input_emb = model.encode_input(texts)
-            pred_emb = model(input_emb)
+            pred_emb, gate_probs, expert_outputs = model.predict_with_diagnostics(input_emb)
             pred = (pred_emb @ model.head.label_embeddings.T).argmax(dim=1)
             all_preds.extend(pred.cpu().tolist())
             all_labels.extend(labels.cpu().tolist())
             correct += (pred == labels).sum().item()
             total += labels.size(0)
+            if args.report_repr_metrics:
+                target_emb = model.head.label_embeddings[labels]
+                all_pred_emb.append(pred_emb.cpu())
+                all_target_emb.append(target_emb.cpu())
+                if gate_probs is not None:
+                    all_gate_probs.append(gate_probs.cpu())
+                if expert_outputs is not None:
+                    all_expert_outputs.append(expert_outputs.cpu())
 
     acc = correct / total
     print(f"Test accuracy: {acc:.4f} ({correct}/{total})")
@@ -99,6 +121,44 @@ def main():
     for i in sorted_by_support[:15]:
         c_acc = class_correct[i] / class_total[i] if class_total[i] > 0 else 0.0
         print(f"  {idx_to_label[i]:40s}: {c_acc:.4f} ({class_correct[i]}/{class_total[i]})")
+
+    if args.report_repr_metrics:
+        pred_emb_all = torch.cat(all_pred_emb, dim=0)
+        target_emb_all = torch.cat(all_target_emb, dim=0)
+        pred_spectrum = covariance_spectrum(pred_emb_all)
+        target_spectrum = covariance_spectrum(target_emb_all)
+        pred_erank = effective_rank(pred_emb_all)
+        target_erank = effective_rank(target_emb_all)
+        var_ratio = variance_ratio(pred_emb_all, target_emb_all)
+        topk = min(args.repr_topk_eigs, pred_spectrum.numel())
+
+        print("\nRepresentation metrics:")
+        print(f"  predictor effective rank: {pred_erank:.4f}")
+        print(f"  target effective rank:    {target_erank:.4f}")
+        print(f"  variance ratio (pred/target): {var_ratio:.4f}")
+        print(f"  predictor covariance top-{topk} eigvals: {[round(v, 6) for v in pred_spectrum[:topk].tolist()]}")
+        print(f"  target covariance top-{topk} eigvals:    {[round(v, 6) for v in target_spectrum[:topk].tolist()]}")
+
+        if all_gate_probs:
+            gate_probs_all = torch.cat(all_gate_probs, dim=0)
+            usage_h, usage_h_norm = expert_usage_entropy(gate_probs_all)
+            cond_h, cond_h_norm = conditional_routing_entropy(gate_probs_all)
+            print("\nMoE routing metrics:")
+            print(f"  expert usage entropy: {usage_h:.4f} (normalized: {usage_h_norm:.4f})")
+            print(f"  conditional routing entropy: {cond_h:.4f} (normalized: {cond_h_norm:.4f})")
+            usage = gate_probs_all.mean(dim=0).tolist()
+            print(f"  average expert usage: {[round(v, 4) for v in usage]}")
+        else:
+            print("\nMoE routing metrics: N/A (baseline head)")
+
+        if all_expert_outputs:
+            expert_outputs_all = torch.cat(all_expert_outputs, dim=0)
+            cka_mean, cka_max = expert_pairwise_cka(expert_outputs_all)
+            print("\nMoE expert similarity:")
+            print(f"  pairwise linear CKA mean: {cka_mean:.4f}")
+            print(f"  pairwise linear CKA max:  {cka_max:.4f}")
+        else:
+            print("\nMoE expert similarity: N/A (baseline head)")
 
 
 if __name__ == "__main__":
