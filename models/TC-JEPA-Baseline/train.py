@@ -198,6 +198,7 @@ def main():
     label_embeddings = label_emb.to(device)
 
     if args.embedding_cache_dir:
+        import gc
         dataset_id = args.dataset if args.dataset != "clinc_oos" else f"{args.dataset}_{args.clinc_config}"
         cache_payload = get_or_build_text_embedding_cache(
             cache_dir=args.embedding_cache_dir,
@@ -211,6 +212,11 @@ def main():
             device=device,
             precompute_batch_size=args.precompute_batch_size,
         )
+        del train_ds, test_ds, ds_dict
+        encoder.model = encoder.model.cpu()
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
         train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
         label_embeddings = cache_payload["label_embeddings"].to(device=device, dtype=torch.float32)
         label_embeddings = label_embeddings / label_embeddings.norm(dim=-1, keepdim=True)
