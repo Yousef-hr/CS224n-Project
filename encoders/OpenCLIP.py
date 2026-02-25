@@ -15,7 +15,7 @@ class OpenCLIPTextEncoder(nn.Module):
         model, _, _ = open_clip.create_model_and_transforms(clip_model_name, pretrained=clip_pretrained)
         tokenizer = open_clip.get_tokenizer(clip_model_name)
 
-        self.model = model
+        self.model = model.to(device)
         self.tokenizer = tokenizer
         self.device = device
         

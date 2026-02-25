@@ -4,11 +4,18 @@ Loss: 1 - cosine_similarity(pred_emb, label_emb). Optional SigReg.
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+# Project root and model dir on path for imports
+_root = Path(__file__).resolve().parent.parent.parent
+_model_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(_root))
+sys.path.insert(0, str(_model_dir))
 
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
@@ -16,7 +23,7 @@ from encoders.OpenCLIP import OpenCLIPTextEncoder
 from utils.train import setup_device, setup_seed, save_checkpoint
 from utils.losses import cosine_similarity_loss
 
-from .model import BaselineJEPATextClassifier
+from model import BaselineJEPATextClassifier
 
 def collate_fn(batch):
     texts = [b[0] for b in batch]
