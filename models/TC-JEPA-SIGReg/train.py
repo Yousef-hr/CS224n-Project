@@ -1,6 +1,5 @@
 """
-Train JEPA MoE text classifier (frozen encoder + MoE predictor).
-Loss: 1 - cosine_similarity(pred_emb, label_emb). Optional SigReg.
+Train JEPA + SIGReg text classifier (baseline predictor + always-on SIGReg).
 """
 
 import argparse
@@ -11,7 +10,6 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Project root and model dir on path for imports
 _root = Path(__file__).resolve().parent.parent.parent
 _model_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(_root))
@@ -20,10 +18,11 @@ sys.path.insert(0, str(_model_dir))
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from encoders.OpenCLIP import OpenCLIPTextEncoder
-from utils.train import setup_device, setup_seed, save_checkpoint
 from utils.losses import build_sigreg_loss_fn, compute_sigreg_bcs_loss, cosine_similarity_loss
+from utils.train import save_checkpoint, setup_device, setup_seed
 
-from model import MoEJEPATextClassifier
+from model import SigRegJEPATextClassifier
+
 
 def collate_fn(batch):
     texts = [b[0] for b in batch]
@@ -36,7 +35,6 @@ def train_epoch(model, loader, optimizer, device, label_embeddings, sigreg_loss_
     total_loss = 0.0
     total_sigreg = 0.0
     n = 0
-
     for texts, labels in tqdm(loader, desc="Train"):
         labels = labels.to(device)
         use_amp = device.type == "cuda"
@@ -45,7 +43,6 @@ def train_epoch(model, loader, optimizer, device, label_embeddings, sigreg_loss_
             pred_emb = model(input_emb)
             pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
             targets = label_embeddings[labels]
-
             alignment_loss = cosine_similarity_loss(pred_emb, targets)
             sigreg_loss = compute_sigreg_bcs_loss(
                 sigreg_loss_fn=sigreg_loss_fn,
@@ -53,17 +50,13 @@ def train_epoch(model, loader, optimizer, device, label_embeddings, sigreg_loss_
                 targets=targets,
                 reference=alignment_loss,
             )
-
             loss = alignment_loss + sigreg_weight * sigreg_loss
-
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         total_loss += loss.item() * labels.size(0)
         total_sigreg += sigreg_loss.item() * labels.size(0)
         n += labels.size(0)
-
     return total_loss / n if n else 0.0, total_sigreg / n if n else 0.0
 
 
@@ -73,19 +66,16 @@ def eval_epoch(model, loader, device, label_embeddings):
     total_loss = 0.0
     correct = 0
     n = 0
-
     for texts, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
         input_emb = model.encode_text(texts)
         pred_emb = model(input_emb)
         pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
         targets = label_embeddings[labels]
-
         total_loss += cosine_similarity_loss(pred_emb, targets).item() * labels.size(0)
         logits = pred_emb @ label_embeddings.T
         correct += (logits.argmax(dim=1) == labels).sum().item()
         n += labels.size(0)
-        
     return total_loss / n if n else 0.0, correct / n if n else 0.0
 
 
@@ -100,8 +90,7 @@ def main():
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--predictor_hidden", type=int, default=512)
-    parser.add_argument("--moe_num_experts", type=int, default=4)
-    parser.add_argument("--use_sigreg", action="store_true")
+    parser.add_argument("--baseline_dropout", type=float, default=0.0)
     parser.add_argument("--sigreg_weight", type=float, default=0.1)
     parser.add_argument("--sigreg_num_slices", type=int, default=256)
     parser.add_argument("--sigreg_lmbd", type=float, default=10.0)
@@ -139,16 +128,15 @@ def main():
         label_emb = label_emb / label_emb.norm(dim=-1, keepdim=True)
     label_embeddings = label_emb.to(device)
 
-    model = MoEJEPATextClassifier(
+    model = SigRegJEPATextClassifier(
         encoder=encoder,
         predictor_hidden_dim=args.predictor_hidden,
-        moe_num_experts=args.moe_num_experts,
+        baseline_dropout=args.baseline_dropout,
         device=device,
     ).to(device)
     optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.lr)
-
     sigreg_loss_fn = build_sigreg_loss_fn(
-        use_sigreg=args.use_sigreg,
+        use_sigreg=True,
         num_slices=args.sigreg_num_slices,
         lmbd=args.sigreg_lmbd,
     )
@@ -156,14 +144,16 @@ def main():
     best_acc = 0.0
     for ep in range(args.epochs):
         train_loss, train_sigreg = train_epoch(
-            model, train_loader, optimizer, device, label_embeddings,
-            sigreg_loss_fn=sigreg_loss_fn, sigreg_weight=args.sigreg_weight,
+            model, train_loader, optimizer, device, label_embeddings, sigreg_loss_fn=sigreg_loss_fn, sigreg_weight=args.sigreg_weight
         )
         eval_loss, eval_acc = eval_epoch(model, test_loader, device, label_embeddings)
-        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | train_sigreg={train_sigreg:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
+        print(
+            f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | train_sigreg={train_sigreg:.4f} "
+            f"| eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}"
+        )
         if eval_acc > best_acc:
             best_acc = eval_acc
-            save_checkpoint(save_dir / "best_jepa_moe.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
+            save_checkpoint(save_dir / "best_jepa_sigreg.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
             print(f"  Saved best (acc={eval_acc:.4f})")
     print(f"Best test accuracy: {best_acc:.4f}")
 

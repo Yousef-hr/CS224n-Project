@@ -21,7 +21,7 @@ from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labe
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from encoders.OpenCLIP import OpenCLIPTextEncoder
 from utils.train import setup_device, setup_seed, save_checkpoint
-from utils.losses import cosine_similarity_loss
+from utils.losses import build_sigreg_loss_fn, compute_sigreg_bcs_loss, cosine_similarity_loss
 
 from model import BaselineJEPATextClassifier
 
@@ -31,9 +31,10 @@ def collate_fn(batch):
     return texts, labels
 
 
-def train_epoch(model, loader, optimizer, device, label_embeddings):
+def train_epoch(model, loader, optimizer, device, label_embeddings, sigreg_loss_fn, sigreg_weight):
     model.train()
     total_loss = 0.0
+    total_sigreg = 0.0
     n = 0
 
     for texts, labels in tqdm(loader, desc="Train"):
@@ -46,16 +47,24 @@ def train_epoch(model, loader, optimizer, device, label_embeddings):
             pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
             targets = label_embeddings[labels]
 
-            loss = cosine_similarity_loss(pred_emb, targets)
+            alignment_loss = cosine_similarity_loss(pred_emb, targets)
+            sigreg_loss = compute_sigreg_bcs_loss(
+                sigreg_loss_fn=sigreg_loss_fn,
+                pred_emb=pred_emb,
+                targets=targets,
+                reference=alignment_loss,
+            )
+            loss = alignment_loss + sigreg_weight * sigreg_loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item() * labels.size(0)
+        total_sigreg += sigreg_loss.item() * labels.size(0)
         n += labels.size(0)
 
-    return total_loss / n if n else 0.0
+    return total_loss / n if n else 0.0, total_sigreg / n if n else 0.0
 
 
 @torch.no_grad()
@@ -95,7 +104,8 @@ def main():
     parser.add_argument("--baseline_dropout", type=float, default=0.0)
     parser.add_argument("--use_sigreg", action="store_true")
     parser.add_argument("--sigreg_weight", type=float, default=0.1)
-    parser.add_argument("--sigreg_target_std", type=float, default=1.0)
+    parser.add_argument("--sigreg_num_slices", type=int, default=256)
+    parser.add_argument("--sigreg_lmbd", type=float, default=10.0)
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--seed", type=int, default=42)
@@ -137,12 +147,28 @@ def main():
         device=device,
     ).to(device)
     optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.lr)
+    sigreg_loss_fn = build_sigreg_loss_fn(
+        use_sigreg=args.use_sigreg,
+        num_slices=args.sigreg_num_slices,
+        lmbd=args.sigreg_lmbd,
+    )
 
     best_acc = 0.0
     for ep in range(args.epochs):
-        loss = train_epoch(model, train_loader, optimizer, device, label_embeddings)
+        loss, train_sigreg = train_epoch(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            label_embeddings,
+            sigreg_loss_fn=sigreg_loss_fn,
+            sigreg_weight=args.sigreg_weight,
+        )
         eval_loss, eval_acc = eval_epoch(model, test_loader, device, label_embeddings)
-        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={loss:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
+        print(
+            f"Epoch {ep + 1}/{args.epochs} | train_loss={loss:.4f} | train_sigreg={train_sigreg:.4f} "
+            f"| eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}"
+        )
         if eval_acc > best_acc:
             best_acc = eval_acc
             save_checkpoint(save_dir / "best_jepa_baseline.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
