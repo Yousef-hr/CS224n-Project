@@ -12,14 +12,8 @@ from torch.utils.data import DataLoader
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from utils.train import setup_device, load_checkpoint
-from repr_metrics import (
-    conditional_routing_entropy,
-    covariance_spectrum,
-    effective_rank,
-    expert_pairwise_cka,
-    expert_usage_entropy,
-    variance_ratio,
-)
+from metrics.moe import conditional_routing_entropy, expert_usage_entropy, expert_pairwise_cka
+from metrics.representation import covariance_spectrum, effective_rank, variance_ratio
 
 from model import JEPATextClassifier
 
