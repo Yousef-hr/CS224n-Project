@@ -1,0 +1,6 @@
+dataset,model,seed,epochs,best_eval_acc,final_eval_acc,metrics_csv,checkpoint
+banking77,TC-JEPA-Baseline,42,3,0.7354,0.7354,d:/CS224n_Baseline/runs/TC-JEPA-Baseline/seed_42/training_metrics_baseline.csv,d:/CS224n_Baseline/runs/TC-JEPA-Baseline/seed_42/best_jepa_baseline.pt
+banking77,TC-JEPA-SIGReg,42,3,0.7354,0.7354,d:/CS224n_Baseline/runs/TC-JEPA-SIGReg/seed_42/training_metrics_sigreg.csv,d:/CS224n_Baseline/runs/TC-JEPA-SIGReg/seed_42/best_jepa_sigreg.pt
+banking77,TC-JEPA-MoE,42,3,0.7955,0.7955,d:/CS224n_Baseline/runs/TC-JEPA-MoE/seed_42/training_metrics_moe.csv,d:/CS224n_Baseline/runs/TC-JEPA-MoE/seed_42/best_jepa_moe.pt
+banking77,TC-JEPA-MoE-SIGReg,42,3,0.7942,0.7942,d:/CS224n_Baseline/runs/TC-JEPA-MoE-SIGReg/seed_42/training_metrics_moe_sigreg.csv,d:/CS224n_Baseline/runs/TC-JEPA-MoE-SIGReg/seed_42/best_jepa_moe_sigreg.pt
+banking77,TC-SOTA-Baseline,42,3,0.8039,0.8039,d:/CS224n_Baseline/runs/TC-SOTA-Baseline/seed_42/training_metrics_sota.csv,d:/CS224n_Baseline/runs/TC-SOTA-Baseline/seed_42/best_sota_baseline.pt

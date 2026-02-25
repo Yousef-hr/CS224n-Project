@@ -16,6 +16,7 @@ sys.path.insert(0, str(_model_dir))
 
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
+from dataset.yahoo_answers import YahooAnswersDataset, get_labels as get_yahoo_labels, load_yahoo_answers_dataset
 from encoders.OpenCLIP import OpenCLIPTextEncoder
 from metrics.moe import conditional_routing_entropy, expert_pairwise_cka, expert_usage_entropy
 from metrics.representation import covariance_spectrum, effective_rank, variance_ratio
@@ -32,7 +33,7 @@ def collate_fn(batch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, choices=["banking77", "clinc_oos"], default="banking77")
+    parser.add_argument("--dataset", type=str, choices=["yahoo_answers", "banking77", "clinc_oos"], default="yahoo_answers")
     parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus")
     parser.add_argument("--cache_dir", type=str, default=None, help="HuggingFace cache dir")
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best_jepa_moe_sigreg.pt")
@@ -40,7 +41,7 @@ def main():
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--predictor_hidden", type=int, default=512)
+    parser.add_argument("--predictor_hidden", type=int, default=1024)
     parser.add_argument("--moe_num_experts", type=int, default=4)
     parser.add_argument("--report_repr_metrics", action="store_true", help="Compute representation and MoE metrics")
     parser.add_argument("--repr_topk_eigs", type=int, default=10, help="Top-k eigenvalues to print from covariance spectrum")
@@ -49,7 +50,11 @@ def main():
     device = setup_device(args.device)
     ckpt_path = Path(args.checkpoint)
 
-    if args.dataset == "banking77":
+    if args.dataset == "yahoo_answers":
+        ds_dict = load_yahoo_answers_dataset(cache_dir=args.cache_dir)
+        labels_list = get_yahoo_labels(cache_dir=args.cache_dir)
+        test_ds = YahooAnswersDataset(ds_dict["test"])
+    elif args.dataset == "banking77":
         ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
         labels_list = get_banking77_labels(cache_dir=args.cache_dir)
         test_ds = Banking77Dataset(ds_dict["test"])

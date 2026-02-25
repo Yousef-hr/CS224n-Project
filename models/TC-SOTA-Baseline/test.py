@@ -18,6 +18,7 @@ sys.path.insert(0, str(_model_dir))
 
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
+from dataset.yahoo_answers import YahooAnswersDataset, get_labels as get_yahoo_labels, load_yahoo_answers_dataset
 from encoders.OpenCLIP import OpenCLIPTextEncoder
 from utils.train import setup_device, load_checkpoint
 
@@ -32,7 +33,7 @@ def collate_fn(batch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, choices=["banking77", "clinc_oos"], default="banking77")
+    parser.add_argument("--dataset", type=str, choices=["yahoo_answers", "banking77", "clinc_oos"], default="yahoo_answers")
     parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus")
     parser.add_argument("--cache_dir", type=str, default=None, help="HuggingFace cache dir")
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best_sota_baseline.pt")
@@ -40,7 +41,7 @@ def main():
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[512, 256], help="MLP hidden dims (must match training)")
+    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[1024], help="MLP hidden dims (must match training)")
     parser.add_argument("--dropout", type=float, default=0.1)
     args = parser.parse_args()
 
@@ -48,7 +49,11 @@ def main():
     ckpt_path = Path(args.checkpoint)
 
     # Data
-    if args.dataset == "banking77":
+    if args.dataset == "yahoo_answers":
+        ds_dict = load_yahoo_answers_dataset(cache_dir=args.cache_dir)
+        labels_list = get_yahoo_labels(cache_dir=args.cache_dir)
+        test_ds = YahooAnswersDataset(ds_dict["test"])
+    elif args.dataset == "banking77":
         ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
         labels_list = get_banking77_labels(cache_dir=args.cache_dir)
         test_ds = Banking77Dataset(ds_dict["test"])

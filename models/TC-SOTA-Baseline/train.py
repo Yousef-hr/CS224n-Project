@@ -4,19 +4,29 @@ Loss: cross-entropy. Standard supervised baseline for comparison with JEPA.
 """
 
 import argparse
+import csv
+import sys
 from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+_root = Path(__file__).resolve().parent.parent.parent
+_model_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(_root))
+sys.path.insert(0, str(_model_dir))
+
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
+from dataset.yahoo_answers import YahooAnswersDataset, get_labels as get_yahoo_labels, load_yahoo_answers_dataset
 from encoders.OpenCLIP import OpenCLIPTextEncoder
+from metrics.representation import covariance_spectrum, effective_rank
+from utils.embedding_cache import build_cached_loaders, get_or_build_text_embedding_cache
 from utils.train import setup_device, setup_seed, save_checkpoint
 from utils.losses import cross_entropy_loss
 
-from .model import SOTABaselineTextClassifier
+from model import SOTABaselineTextClassifier
 
 def collate_fn(batch):
     texts = [b[0] for b in batch]
@@ -28,11 +38,14 @@ def train_epoch(model, loader, optimizer, device):
     model.train()
     total_loss = 0.0
     n = 0
-    for texts, labels in tqdm(loader, desc="Train"):
+    for inputs, labels in tqdm(loader, desc="Train"):
         labels = labels.to(device)
         use_amp = device.type == "cuda"
         with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp):
-            input_emb = model.encode_text(texts)
+            if isinstance(inputs, torch.Tensor):
+                input_emb = inputs.to(device=device, dtype=torch.float32)
+            else:
+                input_emb = model.encode_text(inputs)
             logits = model(input_emb)
             loss = cross_entropy_loss(logits, labels)
         optimizer.zero_grad()
@@ -49,9 +62,12 @@ def eval_epoch(model, loader, device):
     total_loss = 0.0
     correct = 0
     n = 0
-    for texts, labels in tqdm(loader, desc="Eval"):
+    for inputs, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
-        input_emb = model.encode_text(texts)
+        if isinstance(inputs, torch.Tensor):
+            input_emb = inputs.to(device=device, dtype=torch.float32)
+        else:
+            input_emb = model.encode_text(inputs)
         logits = model(input_emb)
         total_loss += cross_entropy_loss(logits, labels).item() * labels.size(0)
         correct += (logits.argmax(dim=1) == labels).sum().item()
@@ -59,19 +75,52 @@ def eval_epoch(model, loader, device):
     return total_loss / n if n else 0.0, correct / n if n else 0.0
 
 
+@torch.no_grad()
+def compute_representation_metrics(model, loader, device):
+    model.eval()
+    all_logits = []
+    for inputs, _ in loader:
+        if isinstance(inputs, torch.Tensor):
+            input_emb = inputs.to(device=device, dtype=torch.float32)
+        else:
+            input_emb = model.encode_text(inputs)
+        logits = model(input_emb)
+        all_logits.append(logits.cpu())
+    logits_all = torch.cat(all_logits, dim=0)
+    spectrum = covariance_spectrum(logits_all)
+    return {
+        "logit_effective_rank": effective_rank(logits_all),
+        "logit_cov_top1_eig": float(spectrum[0].item()),
+    }
+
+
+def write_metrics_csv(rows: list[dict], csv_path: Path) -> None:
+    if not rows:
+        return
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    columns = sorted({k for row in rows for k in row.keys()})
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, choices=["banking77", "clinc_oos"], default="banking77")
+    parser.add_argument("--dataset", type=str, choices=["yahoo_answers", "banking77", "clinc_oos"], default="yahoo_answers")
     parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus")
     parser.add_argument("--cache_dir", type=str, default=None)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[512, 256], help="MLP hidden dims, e.g. 512 256")
+    parser.add_argument("--hidden_dims", type=int, nargs="+", default=[1024], help="MLP hidden dims, e.g. 1024")
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--save_dir", type=str, default="checkpoints")
+    parser.add_argument("--metrics_csv", type=str, default=None)
+    parser.add_argument("--embedding_cache_dir", type=str, default=None, help="Directory to store/reuse frozen text embeddings")
+    parser.add_argument("--precompute_batch_size", type=int, default=512)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -81,7 +130,12 @@ def main():
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.dataset == "banking77":
+    if args.dataset == "yahoo_answers":
+        ds_dict = load_yahoo_answers_dataset(cache_dir=args.cache_dir)
+        labels_list = get_yahoo_labels(cache_dir=args.cache_dir)
+        train_ds = YahooAnswersDataset(ds_dict["train"])
+        test_ds = YahooAnswersDataset(ds_dict["test"])
+    elif args.dataset == "banking77":
         ds_dict = load_banking77_dataset(cache_dir=args.cache_dir)
         labels_list = get_banking77_labels(cache_dir=args.cache_dir)
         train_ds = Banking77Dataset(ds_dict["train"])
@@ -101,6 +155,23 @@ def main():
         clip_pretrained=args.clip_pretrained,
         device=device,
     )
+    if args.embedding_cache_dir:
+        dataset_id = args.dataset if args.dataset != "clinc_oos" else f"{args.dataset}_{args.clinc_config}"
+        cache_payload = get_or_build_text_embedding_cache(
+            cache_dir=args.embedding_cache_dir,
+            dataset_id=dataset_id,
+            clip_model=args.clip_model,
+            clip_pretrained=args.clip_pretrained,
+            train_ds=train_ds,
+            test_ds=test_ds,
+            labels_list=labels_list,
+            encoder=encoder,
+            device=device,
+            precompute_batch_size=args.precompute_batch_size,
+        )
+        train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
+        print("Using precomputed frozen encoder embeddings for train/test splits.")
+
     model = SOTABaselineTextClassifier(
         encoder=encoder,
         num_classes=num_classes,
@@ -109,17 +180,35 @@ def main():
         device=device,
     ).to(device)
     optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.lr)
+    metrics_rows = []
+    metrics_csv_path = Path(args.metrics_csv) if args.metrics_csv else save_dir / "training_metrics_sota.csv"
 
     best_acc = 0.0
     for ep in range(args.epochs):
         train_loss = train_epoch(model, train_loader, optimizer, device)
         eval_loss, eval_acc = eval_epoch(model, test_loader, device)
+        repr_metrics = compute_representation_metrics(model, test_loader, device)
         print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
+        print(
+            f"  repr: logit_erank={repr_metrics['logit_effective_rank']:.4f} "
+            f"| logit_cov_top1={repr_metrics['logit_cov_top1_eig']:.4f}"
+        )
+        metrics_rows.append(
+            {
+                "epoch": ep + 1,
+                "train_loss": train_loss,
+                "eval_loss": eval_loss,
+                "eval_acc": eval_acc,
+                **repr_metrics,
+            }
+        )
         if eval_acc > best_acc:
             best_acc = eval_acc
             save_checkpoint(save_dir / "best_sota_baseline.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
             print(f"  Saved best (acc={eval_acc:.4f})")
     print(f"Best test accuracy: {best_acc:.4f}")
+    write_metrics_csv(metrics_rows, metrics_csv_path)
+    print(f"Saved training metrics CSV: {metrics_csv_path}")
 
 
 if __name__ == "__main__":
