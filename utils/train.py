@@ -1,4 +1,5 @@
 import random
+import csv
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -12,7 +13,7 @@ def setup_device(device: str = "auto") -> torch.device:
     Set up the compute device.
     """
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     device = torch.device(device)
     print(f"Using device: {device}")
     return device
@@ -89,3 +90,14 @@ def load_checkpoint(
         "epoch": checkpoint.get("epoch", 0),
         **{k: v for k, v in checkpoint.items() if k not in ("model_state_dict", "optimizer_state_dict", "epoch")},
     }
+
+def write_metrics_csv(path: Path, rows: list[dict]) -> None:
+    if not rows:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = sorted({k for row in rows for k in row.keys()})
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)

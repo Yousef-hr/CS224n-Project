@@ -68,24 +68,9 @@ class BCS_SIGReg_Loss(nn.Module):
         bcs = (epps_pulley(view1).mean() + epps_pulley(view2).mean()) / 2
         invariance_loss = F.mse_loss(z1, z2).mean()
         total_loss = invariance_loss + self.lmbd * bcs
-        return {"loss": total_loss, "bcs_loss": bcs, "invariance_loss": invariance_loss}
 
-
-def build_sigreg_loss_fn(use_sigreg: bool, num_slices: int = 256, lmbd: float = 10.0) -> BCS_SIGReg_Loss | None:
-    """Create shared SIGReg loss module (or None when disabled)."""
-    return BCS_SIGReg_Loss(num_slices=num_slices, lmbd=lmbd) if use_sigreg else None
-
-
-def compute_sigreg_bcs_loss(
-    sigreg_loss_fn: BCS_SIGReg_Loss | None,
-    pred_emb: torch.Tensor,
-    targets: torch.Tensor,
-    reference: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Compute shared SIGReg BCS term.
-    Returns zero tensor on the right device/dtype when SIGReg is disabled.
-    """
-    if sigreg_loss_fn is None:
-        return torch.zeros_like(reference)
-    return sigreg_loss_fn(pred_emb, targets)["bcs_loss"]
+        return {
+            "loss": total_loss, 
+            "bcs_loss": bcs, 
+            "invariance_loss": invariance_loss
+        }
