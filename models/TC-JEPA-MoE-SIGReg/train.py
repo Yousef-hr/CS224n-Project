@@ -22,7 +22,7 @@ from dataset.yahoo_answers import YahooAnswersDataset, get_labels as get_yahoo_l
 from encoders.OpenCLIP import OpenCLIPTextEncoder
 from metrics.moe import conditional_routing_entropy, expert_usage_entropy
 from metrics.representation import covariance_spectrum, effective_rank, variance_ratio
-from utils.embedding_cache import build_cached_loaders, get_or_build_text_embedding_cache
+from utils.embedding_cache import build_cached_loaders, build_text_embedding_cache, load_text_embedding_cache
 from utils.losses import build_sigreg_loss_fn, compute_sigreg_bcs_loss, cosine_similarity_loss
 from utils.train import save_checkpoint, setup_device, setup_seed
 
@@ -186,8 +186,9 @@ def main():
     label_embeddings = label_emb.to(device)
 
     if args.embedding_cache_dir:
+        import gc
         dataset_id = args.dataset if args.dataset != "clinc_oos" else f"{args.dataset}_{args.clinc_config}"
-        cache_payload = get_or_build_text_embedding_cache(
+        build_text_embedding_cache(
             cache_dir=args.embedding_cache_dir,
             dataset_id=dataset_id,
             clip_model=args.clip_model,
@@ -199,14 +200,22 @@ def main():
             device=device,
             precompute_batch_size=args.precompute_batch_size,
         )
-        del train_ds, test_ds, ds_dict
+        del train_ds, test_ds, ds_dict, train_loader, test_loader
         encoder.model = encoder.model.cpu()
-        import gc; gc.collect()
+        del encoder
+        gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
+        cache_payload = load_text_embedding_cache(
+            cache_dir=args.embedding_cache_dir,
+            dataset_id=dataset_id,
+            clip_model=args.clip_model,
+            clip_pretrained=args.clip_pretrained,
+        )
         train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
         label_embeddings = cache_payload["label_embeddings"].to(device=device, dtype=torch.float32)
         label_embeddings = label_embeddings / label_embeddings.norm(dim=-1, keepdim=True)
+        encoder = None
         print("Using precomputed frozen encoder embeddings for train/test splits.")
 
     model = MoESigRegJEPATextClassifier(
