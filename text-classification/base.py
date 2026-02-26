@@ -20,8 +20,10 @@ class DataSpec:
     embedding_cache_dir: str | Path | None = None
     precompute_batch_size: int = 512
 
+    encoder: str = "openclip"  # "openclip" | "minilm"
     clip_model: str = "ViT-B-32"
     clip_pretrained: str = "laion2b_s34b_b79k"
+    sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # for encoder=minilm
 
 
 @dataclass(frozen=True)

@@ -38,8 +38,10 @@ def add_eval_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_encoder_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--clip_model", type=str, default="ViT-B-32")
-    parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
+    parser.add_argument("--encoder", type=str, choices=["openclip", "minilm"], default="openclip", help="Text encoder: openclip (CLIP) or minilm (SentenceTransformer)")
+    parser.add_argument("--clip_model", type=str, default="ViT-B-32", help="OpenCLIP model name (used when --encoder openclip)")
+    parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k", help="OpenCLIP pretrained (used when --encoder openclip)")
+    parser.add_argument("--sentence_model", type=str, default="sentence-transformers/all-MiniLM-L6-v2", help="Sentence-transformers model (used when --encoder minilm)")
 
 
 def build_data_spec(args: argparse.Namespace) -> DataSpec:
@@ -55,8 +57,10 @@ def build_data_spec(args: argparse.Namespace) -> DataSpec:
         num_workers=getattr(args, "num_workers", 0),
         embedding_cache_dir=getattr(args, "embedding_cache_dir", None),
         precompute_batch_size=getattr(args, "precompute_batch_size", 512),
+        encoder=getattr(args, "encoder", "openclip"),
         clip_model=getattr(args, "clip_model", "ViT-B-32"),
         clip_pretrained=getattr(args, "clip_pretrained", "laion2b_s34b_b79k"),
+        sentence_model=getattr(args, "sentence_model", "sentence-transformers/all-MiniLM-L6-v2"),
     )
 
 

@@ -4,13 +4,12 @@ from typing import Callable
 import torch
 from torch.utils.data import DataLoader
 
-from utils.encoders import OpenCLIPTextEncoder
 from utils.metrics import covariance_spectrum, effective_rank, variance_ratio
 from utils.train import load_checkpoint, setup_device
 
 from .data import load_text_classification
 from .base import DataSpec, EvalSpec, RunContext, TextClassificationModel
-from .train import __collate_text__, __build_label_embeddings__, __encode_batch__
+from .train import __collate_text__, __build_label_embeddings__, __encode_batch__, build_encoder
 
 ExtraEvalFn = Callable[[TextClassificationModel, DataLoader, RunContext], dict[str, float]]
 ModelFactory = Callable[..., TextClassificationModel]  # (labels_list, embed_dim, **kwargs) or (labels_list)
@@ -35,7 +34,7 @@ def run_text_classification_eval(
     )
     labels_list = get_labels(train_ds.split)
 
-    encoder = OpenCLIPTextEncoder(name=data.clip_model, pretrained=data.clip_pretrained)
+    encoder = build_encoder(data)
     encoder.to(device)
     encoder.eval()
     embed_dim = encoder.embed_dim

@@ -7,12 +7,21 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from utils.encoders import OpenCLIPTextEncoder
+from utils.encoders import OpenCLIPTextEncoder, SentenceTransformerEncoder
 from utils.embedding_cache import build_cached_loaders, get_or_build_text_embedding_cache
 from utils.train import setup_device, setup_seed, save_checkpoint, write_metrics_csv
 
 from .base import DataSpec, RunContext, TextClassificationModel, TrainSpec
 from .data import load_text_classification
+
+
+def build_encoder(data: DataSpec):
+    """Build text encoder from DataSpec. Returns OpenCLIPTextEncoder or SentenceTransformerEncoder."""
+    if data.encoder == "openclip":
+        return OpenCLIPTextEncoder(name=data.clip_model, pretrained=data.clip_pretrained)
+    if data.encoder == "minilm":
+        return SentenceTransformerEncoder(model_name=data.sentence_model)
+    raise ValueError(f"Unknown encoder: {data.encoder!r}. Use 'openclip' or 'minilm'.")
 
 
 def __collate_text__(batch):
@@ -38,7 +47,7 @@ def __encode_batch__(encoder, inputs, device: torch.device, use_amp: bool) -> to
 
 @torch.no_grad()
 def __build_label_embeddings__(
-    encoder: OpenCLIPTextEncoder,
+    encoder: OpenCLIPTextEncoder | SentenceTransformerEncoder,
     labels_list: list[str],
     device: torch.device,
     use_amp: bool,
@@ -67,7 +76,7 @@ def train_epoch(
     model: TextClassificationModel,
     loader: Iterable,
     ctx: RunContext,
-    encoder: OpenCLIPTextEncoder,
+    encoder: OpenCLIPTextEncoder | SentenceTransformerEncoder,
 ) -> dict[str, float]:
     model.train()
     sums: dict[str, float] = {}
@@ -97,7 +106,7 @@ def eval_epoch(
     model: TextClassificationModel,
     loader: Iterable,
     ctx: RunContext,
-    encoder: OpenCLIPTextEncoder,
+    encoder: OpenCLIPTextEncoder | SentenceTransformerEncoder,
 ) -> dict[str, float]:
     model.eval()
     sums: dict[str, float] = {}
@@ -150,7 +159,7 @@ def run_text_classification_train(
     )
     labels_list = get_labels(train_ds.split)
 
-    encoder = OpenCLIPTextEncoder(name=data.clip_model, pretrained=data.clip_pretrained)
+    encoder = build_encoder(data)
     encoder.to(device)
     encoder.eval()
     embed_dim = encoder.embed_dim
@@ -183,11 +192,11 @@ def run_text_classification_train(
 
     if data.embedding_cache_dir:
         dataset_id = __dataset_cache_id__(data.dataset, data.subset)
+        encoder_id = f"{data.clip_model}__{data.clip_pretrained}" if data.encoder == "openclip" else f"minilm__{data.sentence_model.replace('/', '_')}"
         cache_payload = get_or_build_text_embedding_cache(
             cache_dir=data.embedding_cache_dir,
             dataset_id=dataset_id,
-            clip_model=data.clip_model,
-            clip_pretrained=data.clip_pretrained,
+            encoder_id=encoder_id,
             train_ds=train_ds,
             test_ds=test_ds,
             labels_list=labels_list,

@@ -32,8 +32,8 @@ def _encode_dataset_split(split_ds, encoder, device: torch.device, batch_size: i
     return torch.cat(all_embeddings, dim=0), torch.cat(all_labels, dim=0)
 
 
-def _cache_path(cache_dir: Path, dataset_id: str, clip_model: str, clip_pretrained: str) -> Path:
-    filename = f"{_sanitize(dataset_id)}__{_sanitize(clip_model)}__{_sanitize(clip_pretrained)}.pt"
+def _cache_path(cache_dir: Path, dataset_id: str, encoder_id: str) -> Path:
+    filename = f"{_sanitize(dataset_id)}__{_sanitize(encoder_id)}.pt"
     return cache_dir / filename
 
 
@@ -41,8 +41,7 @@ def get_or_build_text_embedding_cache(
     *,
     cache_dir: str | Path,
     dataset_id: str,
-    clip_model: str,
-    clip_pretrained: str,
+    encoder_id: str,
     train_ds,
     test_ds,
     labels_list: list[str],
@@ -52,7 +51,7 @@ def get_or_build_text_embedding_cache(
 ) -> dict:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = _cache_path(cache_dir, dataset_id, clip_model, clip_pretrained)
+    path = _cache_path(cache_dir, dataset_id, encoder_id)
     if path.exists():
         print(f"Loading precomputed text embeddings: {path}")
         return torch.load(path, map_location="cpu", weights_only=False)
@@ -65,8 +64,7 @@ def get_or_build_text_embedding_cache(
 
     payload = {
         "dataset_id": dataset_id,
-        "clip_model": clip_model,
-        "clip_pretrained": clip_pretrained,
+        "encoder_id": encoder_id,
         "train_embeddings": train_emb,
         "train_labels": train_labels,
         "test_embeddings": test_emb,
