@@ -26,7 +26,7 @@ def add_sigreg_args(parser):
 
 @torch.no_grad()
 def _extra_eval_repr_metrics(model, loader, ctx) -> dict[str, float]:
-    model.eval_mode()
+    model.eval()
     if ctx.label_embeddings is None or not ctx.extra or "encoder" not in ctx.extra:
         return {}
     encoder = ctx.extra["encoder"]

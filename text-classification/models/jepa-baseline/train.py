@@ -18,7 +18,7 @@ from .model import BaselineJEPATextClassifier
 
 @torch.no_grad()
 def __get_representation_metrics__(model, loader, ctx) -> dict[str, float]:
-    model.eval_mode()
+    model.eval()
     if ctx.label_embeddings is None or not ctx.extra or "encoder" not in ctx.extra:
         return {}
         

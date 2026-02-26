@@ -18,7 +18,7 @@ class MoESigRegJEPATextClassifier(BaseTextClassificationModel):
         embed_dim: int,
         predictor_hidden_dim: int = 1024,
         moe_num_experts: int = 4,
-        sigreg_weight: float = 0.05,
+        sigreg_weight: float = 0.1,
         sigreg_num_slices: int = 256,
         sigreg_lmbd: float = 10.0,
     ):

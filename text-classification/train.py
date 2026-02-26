@@ -69,16 +69,14 @@ def train_epoch(
     ctx: RunContext,
     encoder: OpenCLIPTextEncoder,
 ) -> dict[str, float]:
-    model.train_mode()
+    model.train()
     sums: dict[str, float] = {}
     n = 0
 
     for inputs, labels in tqdm(loader, desc="Train"):
         labels = labels.to(ctx.device)
         input_emb = __encode_batch__(encoder, inputs, ctx.device, ctx.use_amp)
-        with torch.amp.autocast(
-            device_type="cuda" if ctx.use_amp else "cpu", enabled=ctx.use_amp
-        ):
+        with torch.amp.autocast(device_type="cuda" if ctx.use_amp else "cpu", enabled=ctx.use_amp):
             outputs = model.forward(input_emb, ctx)
             loss_dict = model.loss(outputs, labels, ctx)
             loss = loss_dict["total_loss"]
@@ -101,7 +99,7 @@ def eval_epoch(
     ctx: RunContext,
     encoder: OpenCLIPTextEncoder,
 ) -> dict[str, float]:
-    model.eval_mode()
+    model.eval()
     sums: dict[str, float] = {}
     correct = 0
     n = 0

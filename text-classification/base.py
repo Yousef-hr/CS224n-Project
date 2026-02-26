@@ -76,10 +76,10 @@ class TextClassificationModel(Protocol):
     def scores(self, outputs: torch.Tensor, ctx: RunContext) -> torch.Tensor:
         """Return class scores Tensor[B, C] for accuracy."""
 
-    def train_mode(self) -> None:
+    def train(self) -> None:
         """Put trainable components in train mode."""
 
-    def eval_mode(self) -> None:
+    def eval(self) -> None:
         """Put components in eval mode."""
 
 

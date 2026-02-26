@@ -66,7 +66,7 @@ def run_text_classification_eval(
         extra={"encoder": encoder},
     )
 
-    model.eval_mode()
+    model.eval()
 
     all_preds: list[int] = []
     all_labels: list[int] = []

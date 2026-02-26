@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Tuple
 
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 
 from .banking77 import banking77_dataset_registry_dict
 from .clinc_oos import clinc_oos_dataset_registry_dict
@@ -13,7 +13,7 @@ text_classification_registry = {
     "yahoo_answers": yahoo_answers_dataset_registry_dict,
 }
 
-class TextClassificationDataset(Dataset):
+class TextClassificationDataset:
     """Yields (text: str, label_idx: int) from a HuggingFace split."""
 
     def __init__(self, split, get_item_fn):

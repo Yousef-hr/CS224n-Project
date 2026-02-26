@@ -26,7 +26,7 @@ def add_jepa_moe_args(parser):
 
 @torch.no_grad()
 def __extra_eval_moe_metrics__(model, loader, ctx) -> dict[str, float]:
-    model.eval_mode()
+    model.eval()
     if ctx.label_embeddings is None or not ctx.extra or "encoder" not in ctx.extra:
         return {}
     encoder = ctx.extra["encoder"]
@@ -66,12 +66,9 @@ def __extra_eval_moe_metrics__(model, loader, ctx) -> dict[str, float]:
 
 def main() -> None:
     parser = make_train_parser()
-    parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus", help="Alias for --subset when dataset=clinc_oos")
     add_jepa_moe_args(parser)
     args = parser.parse_args()
-    if args.dataset == "clinc_oos" and args.subset is None:
-        args.subset = args.clinc_config
-
+        
     data = build_data_spec(args)
     train = build_train_spec(args, metrics_csv_default=Path(args.save_dir) / "training_metrics_jepa_moe.csv")
 

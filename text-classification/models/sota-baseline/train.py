@@ -21,7 +21,7 @@ def add_sota_baseline_args(parser):
 
 
 def __extra_eval_logit_metrics__(model, loader, ctx) -> dict[str, float]:
-    model.eval_mode()
+    model.eval()
     encoder = ctx.extra.get("encoder") if ctx.extra else None
     if encoder is None:
         return {}
@@ -43,10 +43,7 @@ def __extra_eval_logit_metrics__(model, loader, ctx) -> dict[str, float]:
 def main() -> None:
     parser = make_train_parser()
     add_sota_baseline_args(parser)
-    parser.add_argument("--clinc_config", type=str, choices=["plus", "small", "imbalanced"], default="plus", help="Alias for --subset when dataset=clinc_oos")
     args = parser.parse_args()
-    if args.dataset == "clinc_oos" and args.subset is None:
-        args.subset = args.clinc_config
 
     data = build_data_spec(args)
     train = build_train_spec(args, metrics_csv_default=Path(args.save_dir) / "training_metrics_sota.csv")
