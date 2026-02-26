@@ -164,7 +164,6 @@ def main():
         )
         del train_ds, test_ds, ds_dict, train_loader, test_loader
         encoder.model = encoder.model.cpu()
-        del encoder
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
@@ -175,7 +174,6 @@ def main():
             clip_pretrained=args.clip_pretrained,
         )
         train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
-        encoder = None
         print("Using precomputed frozen encoder embeddings for train/test splits.")
 
     model = SOTABaselineTextClassifier(

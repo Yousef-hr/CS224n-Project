@@ -200,7 +200,6 @@ def main():
         )
         del train_ds, test_ds, ds_dict, train_loader, test_loader
         encoder.model = encoder.model.cpu()
-        del encoder
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
@@ -213,7 +212,6 @@ def main():
         train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
         label_embeddings = cache_payload["label_embeddings"].to(device=device, dtype=torch.float32)
         label_embeddings = label_embeddings / label_embeddings.norm(dim=-1, keepdim=True)
-        encoder = None
         print("Using precomputed frozen encoder embeddings for train/test splits.")
 
     model = BaselineJEPATextClassifier(
