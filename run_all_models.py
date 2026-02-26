@@ -55,13 +55,17 @@ def build_command(
     return cmd
 
 
-def run_command(cmd: list[str], dry_run: bool) -> float:
+def run_command(cmd: list[str], dry_run: bool) -> tuple[float, bool]:
     print("\n$ " + " ".join(cmd))
     if dry_run:
-        return 0.0
+        return 0.0, True
     t0 = time.time()
-    subprocess.run(cmd, check=True)
-    return time.time() - t0
+    result = subprocess.run(cmd)
+    elapsed = time.time() - t0
+    if result.returncode != 0:
+        print(f"WARNING: command exited with code {result.returncode}, continuing to next run...")
+        return elapsed, False
+    return elapsed, True
 
 
 def main():
@@ -94,7 +98,7 @@ def main():
                 plan.append((model_name, seed, args.full_epochs))
 
     print(f"Planned runs: {len(plan)}")
-    timings: list[tuple[str, int, int, float]] = []
+    timings: list[tuple[str, int, int, float, bool]] = []
     for model_name, seed, epochs in plan:
         script_path = MODEL_SCRIPTS[model_name]
         save_dir = save_root / model_name / f"seed_{seed}"
@@ -113,15 +117,19 @@ def main():
             clip_pretrained=args.clip_pretrained,
             precompute_batch_size=args.precompute_batch_size,
         )
-        elapsed = run_command(cmd, args.dry_run)
-        timings.append((model_name, seed, epochs, elapsed))
+        elapsed, success = run_command(cmd, args.dry_run)
+        timings.append((model_name, seed, epochs, elapsed, success))
 
     print("\nRun summary:")
-    for model_name, seed, epochs, elapsed in timings:
+    for model_name, seed, epochs, elapsed, success in timings:
+        status = "OK" if success else "FAILED"
         if args.dry_run:
             print(f"- {model_name} seed={seed} epochs={epochs}")
         else:
-            print(f"- {model_name} seed={seed} epochs={epochs} elapsed={elapsed/60:.2f} min")
+            print(f"- [{status}] {model_name} seed={seed} epochs={epochs} elapsed={elapsed/60:.2f} min")
+    failed = sum(1 for *_, s in timings if not s)
+    if failed:
+        print(f"\n{failed}/{len(timings)} runs failed.")
 
 
 if __name__ == "__main__":

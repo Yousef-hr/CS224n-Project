@@ -57,7 +57,6 @@ def train_epoch(model, loader, optimizer, device):
 
 
 @torch.no_grad()
-@torch.no_grad()
 def full_evaluation(model, loader, device):
     """Single-pass eval: loss, accuracy, and logit representation metrics."""
     model.eval()
