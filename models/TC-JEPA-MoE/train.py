@@ -76,37 +76,17 @@ def train_epoch(model, loader, optimizer, device, label_embeddings, sigreg_loss_
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, device, label_embeddings):
+def full_evaluation(model, loader, device, label_embeddings):
+    """Single-pass eval: loss, accuracy, representation metrics, and MoE diagnostics."""
     model.eval()
     total_loss = 0.0
     correct = 0
     n = 0
-
-    for inputs, labels in tqdm(loader, desc="Eval"):
-        labels = labels.to(device)
-        if isinstance(inputs, torch.Tensor):
-            input_emb = inputs.to(device=device, dtype=torch.float32)
-        else:
-            input_emb = model.encode_text(inputs)
-        pred_emb = model(input_emb)
-        pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
-        targets = label_embeddings[labels]
-
-        total_loss += cosine_similarity_loss(pred_emb, targets).item() * labels.size(0)
-        logits = pred_emb @ label_embeddings.T
-        correct += (logits.argmax(dim=1) == labels).sum().item()
-        n += labels.size(0)
-        
-    return total_loss / n if n else 0.0, correct / n if n else 0.0
-
-
-@torch.no_grad()
-def compute_eval_metrics(model, loader, device, label_embeddings):
-    model.eval()
     all_pred = []
     all_target = []
     all_gate_probs = []
-    for inputs, labels in loader:
+
+    for inputs, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
         if isinstance(inputs, torch.Tensor):
             input_emb = inputs.to(device=device, dtype=torch.float32)
@@ -115,6 +95,11 @@ def compute_eval_metrics(model, loader, device, label_embeddings):
         pred_emb, gate_probs, _ = model.forward_with_diagnostics(input_emb)
         pred_emb = pred_emb / pred_emb.norm(dim=-1, keepdim=True)
         targets = label_embeddings[labels]
+
+        total_loss += cosine_similarity_loss(pred_emb, targets).item() * labels.size(0)
+        logits = pred_emb @ label_embeddings.T
+        correct += (logits.argmax(dim=1) == labels).sum().item()
+        n += labels.size(0)
         all_pred.append(pred_emb.cpu())
         all_target.append(targets.cpu())
         all_gate_probs.append(gate_probs.cpu())
@@ -125,6 +110,8 @@ def compute_eval_metrics(model, loader, device, label_embeddings):
     usage_h, usage_h_norm = expert_usage_entropy(gate_probs_all)
     cond_h, cond_h_norm = conditional_routing_entropy(gate_probs_all)
     return {
+        "eval_loss": total_loss / n if n else 0.0,
+        "eval_acc": correct / n if n else 0.0,
         "pred_effective_rank": effective_rank(pred_emb_all),
         "target_effective_rank": effective_rank(target_emb_all),
         "variance_ratio": variance_ratio(pred_emb_all, target_emb_all),
@@ -246,35 +233,24 @@ def main():
     metrics_rows = []
     metrics_csv_path = Path(args.metrics_csv) if args.metrics_csv else save_dir / "training_metrics_moe.csv"
 
-    best_acc = 0.0
     for ep in range(args.epochs):
         train_loss, train_sigreg = train_epoch(
             model, train_loader, optimizer, device, label_embeddings,
             sigreg_loss_fn=sigreg_loss_fn, sigreg_weight=args.sigreg_weight,
         )
-        eval_loss, eval_acc = eval_epoch(model, test_loader, device, label_embeddings)
-        eval_metrics = compute_eval_metrics(model, test_loader, device, label_embeddings)
-        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | train_sigreg={train_sigreg:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
-        print(
-            f"  repr/moe: pred_erank={eval_metrics['pred_effective_rank']:.4f} "
-            f"| var_ratio={eval_metrics['variance_ratio']:.4f} "
-            f"| usage_h_norm={eval_metrics['expert_usage_entropy_norm']:.4f}"
-        )
-        metrics_rows.append(
-            {
-                "epoch": ep + 1,
-                "train_loss": train_loss,
-                "train_sigreg": train_sigreg,
-                "eval_loss": eval_loss,
-                "eval_acc": eval_acc,
-                **eval_metrics,
-            }
-        )
-        if eval_acc > best_acc:
-            best_acc = eval_acc
-            save_checkpoint(save_dir / "best_jepa_moe.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
-            print(f"  Saved best (acc={eval_acc:.4f})")
-    print(f"Best test accuracy: {best_acc:.4f}")
+        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | train_sigreg={train_sigreg:.4f}")
+        metrics_rows.append({"epoch": ep + 1, "train_loss": train_loss, "train_sigreg": train_sigreg})
+
+    eval_results = full_evaluation(model, test_loader, device, label_embeddings)
+    metrics_rows[-1].update(eval_results)
+    save_checkpoint(save_dir / "best_jepa_moe.pt", model=model, optimizer=optimizer, epoch=args.epochs, eval_acc=eval_results["eval_acc"])
+    print(f"Final eval | eval_loss={eval_results['eval_loss']:.4f} | eval_acc={eval_results['eval_acc']:.4f}")
+    print(
+        f"  repr/moe: pred_erank={eval_results['pred_effective_rank']:.4f} "
+        f"| var_ratio={eval_results['variance_ratio']:.4f} "
+        f"| usage_h_norm={eval_results['expert_usage_entropy_norm']:.4f}"
+    )
+    print(f"Final test accuracy: {eval_results['eval_acc']:.4f}")
     write_metrics_csv(metrics_rows, metrics_csv_path)
     print(f"Saved training metrics CSV: {metrics_csv_path}")
 

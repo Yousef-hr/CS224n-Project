@@ -57,11 +57,14 @@ def train_epoch(model, loader, optimizer, device):
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, device):
+@torch.no_grad()
+def full_evaluation(model, loader, device):
+    """Single-pass eval: loss, accuracy, and logit representation metrics."""
     model.eval()
     total_loss = 0.0
     correct = 0
     n = 0
+    all_logits = []
     for inputs, labels in tqdm(loader, desc="Eval"):
         labels = labels.to(device)
         if isinstance(inputs, torch.Tensor):
@@ -72,23 +75,12 @@ def eval_epoch(model, loader, device):
         total_loss += cross_entropy_loss(logits, labels).item() * labels.size(0)
         correct += (logits.argmax(dim=1) == labels).sum().item()
         n += labels.size(0)
-    return total_loss / n if n else 0.0, correct / n if n else 0.0
-
-
-@torch.no_grad()
-def compute_representation_metrics(model, loader, device):
-    model.eval()
-    all_logits = []
-    for inputs, _ in loader:
-        if isinstance(inputs, torch.Tensor):
-            input_emb = inputs.to(device=device, dtype=torch.float32)
-        else:
-            input_emb = model.encode_text(inputs)
-        logits = model(input_emb)
         all_logits.append(logits.cpu())
     logits_all = torch.cat(all_logits, dim=0)
     spectrum = covariance_spectrum(logits_all)
     return {
+        "eval_loss": total_loss / n if n else 0.0,
+        "eval_acc": correct / n if n else 0.0,
         "logit_effective_rank": effective_rank(logits_all),
         "logit_cov_top1_eig": float(spectrum[0].item()),
     }
@@ -188,30 +180,20 @@ def main():
     metrics_rows = []
     metrics_csv_path = Path(args.metrics_csv) if args.metrics_csv else save_dir / "training_metrics_sota.csv"
 
-    best_acc = 0.0
     for ep in range(args.epochs):
         train_loss = train_epoch(model, train_loader, optimizer, device)
-        eval_loss, eval_acc = eval_epoch(model, test_loader, device)
-        repr_metrics = compute_representation_metrics(model, test_loader, device)
-        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f} | eval_loss={eval_loss:.4f} | eval_acc={eval_acc:.4f}")
-        print(
-            f"  repr: logit_erank={repr_metrics['logit_effective_rank']:.4f} "
-            f"| logit_cov_top1={repr_metrics['logit_cov_top1_eig']:.4f}"
-        )
-        metrics_rows.append(
-            {
-                "epoch": ep + 1,
-                "train_loss": train_loss,
-                "eval_loss": eval_loss,
-                "eval_acc": eval_acc,
-                **repr_metrics,
-            }
-        )
-        if eval_acc > best_acc:
-            best_acc = eval_acc
-            save_checkpoint(save_dir / "best_sota_baseline.pt", model=model, optimizer=optimizer, epoch=ep, eval_acc=eval_acc)
-            print(f"  Saved best (acc={eval_acc:.4f})")
-    print(f"Best test accuracy: {best_acc:.4f}")
+        print(f"Epoch {ep + 1}/{args.epochs} | train_loss={train_loss:.4f}")
+        metrics_rows.append({"epoch": ep + 1, "train_loss": train_loss})
+
+    eval_results = full_evaluation(model, test_loader, device)
+    metrics_rows[-1].update(eval_results)
+    save_checkpoint(save_dir / "best_sota_baseline.pt", model=model, optimizer=optimizer, epoch=args.epochs, eval_acc=eval_results["eval_acc"])
+    print(f"Final eval | eval_loss={eval_results['eval_loss']:.4f} | eval_acc={eval_results['eval_acc']:.4f}")
+    print(
+        f"  repr: logit_erank={eval_results['logit_effective_rank']:.4f} "
+        f"| logit_cov_top1={eval_results['logit_cov_top1_eig']:.4f}"
+    )
+    print(f"Final test accuracy: {eval_results['eval_acc']:.4f}")
     write_metrics_csv(metrics_rows, metrics_csv_path)
     print(f"Saved training metrics CSV: {metrics_csv_path}")
 
