@@ -20,7 +20,7 @@ sys.path.insert(0, str(_model_dir))
 from dataset.banking77 import Banking77Dataset, get_labels as get_banking77_labels, load_banking77_dataset
 from dataset.clinc_oos import CLINCOOSDataset, get_labels as get_clinc_labels, load_clinc_oos_dataset
 from dataset.yahoo_answers import YahooAnswersDataset, get_labels as get_yahoo_labels, load_yahoo_answers_dataset
-from encoders.OpenCLIP import OpenCLIPTextEncoder
+from encoders import build_encoder
 from metrics.representation import covariance_spectrum, effective_rank
 from utils.embedding_cache import build_cached_loaders, build_text_embedding_cache, load_text_embedding_cache
 from utils.train import setup_device, setup_seed, save_checkpoint
@@ -104,6 +104,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--encoder", type=str, choices=["openclip", "minilm"], default="openclip")
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--hidden_dims", type=int, nargs="+", default=[1024], help="MLP hidden dims, e.g. 1024")
@@ -141,10 +142,8 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
 
-    encoder = OpenCLIPTextEncoder(
-        clip_model_name=args.clip_model,
-        clip_pretrained=args.clip_pretrained,
-        device=device,
+    encoder, cache_model_id, cache_pretrained_id = build_encoder(
+        args.encoder, device, args.clip_model, args.clip_pretrained,
     )
     if args.embedding_cache_dir:
         import gc
@@ -152,8 +151,8 @@ def main():
         build_text_embedding_cache(
             cache_dir=args.embedding_cache_dir,
             dataset_id=dataset_id,
-            clip_model=args.clip_model,
-            clip_pretrained=args.clip_pretrained,
+            clip_model=cache_model_id,
+            clip_pretrained=cache_pretrained_id,
             train_ds=train_ds,
             test_ds=test_ds,
             labels_list=labels_list,
@@ -169,8 +168,8 @@ def main():
         cache_payload = load_text_embedding_cache(
             cache_dir=args.embedding_cache_dir,
             dataset_id=dataset_id,
-            clip_model=args.clip_model,
-            clip_pretrained=args.clip_pretrained,
+            clip_model=cache_model_id,
+            clip_pretrained=cache_pretrained_id,
         )
         train_loader, test_loader = build_cached_loaders(cache_payload, args.batch_size)
         print("Using precomputed frozen encoder embeddings for train/test splits.")

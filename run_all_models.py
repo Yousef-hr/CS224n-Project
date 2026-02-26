@@ -24,6 +24,7 @@ def build_command(
     cache_dir: str | None,
     embedding_cache_dir: str | None,
     device: str,
+    encoder: str,
     clip_model: str,
     clip_pretrained: str,
     precompute_batch_size: int,
@@ -41,6 +42,8 @@ def build_command(
         str(save_dir),
         "--device",
         device,
+        "--encoder",
+        encoder,
         "--clip_model",
         clip_model,
         "--clip_pretrained",
@@ -78,6 +81,7 @@ def main():
     parser.add_argument("--embedding_cache_dir", type=str, default="precomputed_embeddings")
     parser.add_argument("--save_root", type=str, default="runs")
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--encoder", type=str, choices=["openclip", "minilm"], default="openclip")
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--precompute_batch_size", type=int, default=512)
@@ -113,6 +117,7 @@ def main():
             cache_dir=args.cache_dir,
             embedding_cache_dir=args.embedding_cache_dir,
             device=args.device,
+            encoder=args.encoder,
             clip_model=args.clip_model,
             clip_pretrained=args.clip_pretrained,
             precompute_batch_size=args.precompute_batch_size,
