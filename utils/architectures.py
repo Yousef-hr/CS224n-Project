@@ -25,7 +25,8 @@ class MLP(nn.Module):
 class MoEMLP(nn.Module):
     """
     Mixture-of-Experts MLP: learned gate over multiple MLP experts, returns weighted sum.
-    Experts use spec 'embed_dim-hidden_dim-embed_dim'. No internal weight init.
+    Each expert has hidden_dim // num_experts units (capacity-efficient: total expert
+    params ~ one MLP with hidden_dim). No internal weight init.
     """
 
     def __init__(self, embed_dim: int, hidden_dim: int, num_experts: int):
@@ -33,9 +34,10 @@ class MoEMLP(nn.Module):
         if num_experts < 2:
             raise ValueError(f"MoE requires num_experts >= 2, got {num_experts}")
 
+        expert_hidden = max(1, hidden_dim // num_experts)
         self.gate = nn.Linear(embed_dim, num_experts)
         self.experts = nn.ModuleList(
-            [MLP(f"{embed_dim}-{hidden_dim}-{embed_dim}") for _ in range(num_experts)]
+            [MLP(f"{embed_dim}-{expert_hidden}-{embed_dim}") for _ in range(num_experts)]
         )
 
     def gate_probs(self, x: torch.Tensor) -> torch.Tensor:

@@ -49,11 +49,13 @@ def _encode_dataset_split(split_ds, encoder, device: torch.device, batch_size: i
     return all_embeddings[:offset], all_labels[:offset]
 
 
-def _cache_prefix(cache_dir: Path, dataset_id: str, clip_model: str, clip_pretrained: str) -> str:
-    return f"{_sanitize(dataset_id)}__{_sanitize(clip_model)}__{_sanitize(clip_pretrained)}"
+def _cache_path(cache_dir: Path, dataset_id: str, encoder_id: str) -> Path:
+    filename = f"{_sanitize(dataset_id)}__{_sanitize(encoder_id)}.pt"
+    return cache_dir / filename
 
 
-def _split_paths(cache_dir: Path, prefix: str):
+def _split_paths(cache_dir: Path, dataset_id: str, encoder_id: str):
+    prefix = f"{_sanitize(dataset_id)}__{_sanitize(encoder_id)}"
     return (
         cache_dir / f"{prefix}__train.pt",
         cache_dir / f"{prefix}__test.pt",
@@ -61,25 +63,11 @@ def _split_paths(cache_dir: Path, prefix: str):
     )
 
 
-def cache_exists(
-    *,
-    cache_dir: str | Path,
-    dataset_id: str,
-    clip_model: str,
-    clip_pretrained: str,
-) -> bool:
-    cache_dir = Path(cache_dir)
-    prefix = _cache_prefix(cache_dir, dataset_id, clip_model, clip_pretrained)
-    train_path, test_path, label_path = _split_paths(cache_dir, prefix)
-    return train_path.exists() and test_path.exists() and label_path.exists()
-
-
 def build_text_embedding_cache(
     *,
     cache_dir: str | Path,
     dataset_id: str,
-    clip_model: str,
-    clip_pretrained: str,
+    encoder_id: str,
     train_ds,
     test_ds,
     labels_list: list[str],
@@ -90,14 +78,13 @@ def build_text_embedding_cache(
     """Precompute and save embeddings to disk. Does NOT load them back."""
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    prefix = _cache_prefix(cache_dir, dataset_id, clip_model, clip_pretrained)
-    train_path, test_path, label_path = _split_paths(cache_dir, prefix)
+    train_path, test_path, label_path = _split_paths(cache_dir, dataset_id, encoder_id)
 
     if train_path.exists() and test_path.exists() and label_path.exists():
-        print(f"Cache already exists: {cache_dir}/{prefix}__*.pt")
+        print(f"Cache already exists for {dataset_id}/{encoder_id}")
         return
 
-    print(f"Building precomputed text embeddings: {cache_dir}/{prefix}__*.pt")
+    print(f"Building precomputed text embeddings for {dataset_id}/{encoder_id}")
 
     with torch.no_grad():
         label_emb = encoder(labels_list).detach().cpu().to(torch.float16)
@@ -127,23 +114,20 @@ def load_text_embedding_cache(
     *,
     cache_dir: str | Path,
     dataset_id: str,
-    clip_model: str,
-    clip_pretrained: str,
+    encoder_id: str,
 ) -> dict:
     """Load precomputed embeddings from disk. Call after freeing encoder/datasets."""
     cache_dir = Path(cache_dir)
-    prefix = _cache_prefix(cache_dir, dataset_id, clip_model, clip_pretrained)
-    train_path, test_path, label_path = _split_paths(cache_dir, prefix)
+    train_path, test_path, label_path = _split_paths(cache_dir, dataset_id, encoder_id)
 
-    print(f"Loading precomputed text embeddings from {cache_dir}/{prefix}__*.pt")
+    print(f"Loading precomputed text embeddings for {dataset_id}/{encoder_id}")
     train_data = torch.load(train_path, map_location="cpu", weights_only=False)
     test_data = torch.load(test_path, map_location="cpu", weights_only=False)
     label_emb = torch.load(label_path, map_location="cpu", weights_only=False)
 
     return {
         "dataset_id": dataset_id,
-        "clip_model": clip_model,
-        "clip_pretrained": clip_pretrained,
+        "encoder_id": encoder_id,
         "train_embeddings": train_data["emb"],
         "train_labels": train_data["labels"],
         "test_embeddings": test_data["emb"],
