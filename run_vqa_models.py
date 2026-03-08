@@ -332,7 +332,10 @@ def main() -> None:
                 all_rows.append(row)
 
     if all_rows:
-        fieldnames = ["model"] + sorted(k for k in all_rows[0] if k != "model")
+        all_keys: set[str] = set()
+        for row in all_rows:
+            all_keys.update(row.keys())
+        fieldnames = ["model"] + sorted(k for k in all_keys if k != "model")
         with combined_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
