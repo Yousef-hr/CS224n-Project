@@ -24,7 +24,7 @@ class VisionQABaseline(nn.Module):
         self,
         clip_model: str = "ViT-B-32",
         clip_pretrained: str = "laion2b_s34b_b79k",
-        hidden_dim: int = 512,
+        hidden_dim: int = 1024,
         max_choices: int = MAX_CHOICES,
         dropout: float = 0.1,
         lr: float = 3e-4,

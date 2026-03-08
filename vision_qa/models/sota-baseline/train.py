@@ -26,7 +26,7 @@ def main() -> None:
 
     parser.add_argument("--clip_model", type=str, default="ViT-B-32")
     parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--hidden_dim", type=int, default=512)
+    parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--dropout", type=float, default=0.1)
 
     parser.add_argument("--save_dir", type=str, default="checkpoints")
