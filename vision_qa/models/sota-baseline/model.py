@@ -118,7 +118,7 @@ class VisionQABaseline(nn.Module):
             n = logits.size(1)
             num_c = batch.num_choices.to(logits.device)
             mask = torch.arange(n, device=logits.device, dtype=torch.long) < num_c.unsqueeze(1)
-            logits = logits.masked_fill(~mask, -1e9)
+            logits = logits.masked_fill(~mask, torch.finfo(logits.dtype).min)
         ce = F.cross_entropy(logits, answer_indices)
         return {"total_loss": ce, "cross_entropy_loss": ce}
 

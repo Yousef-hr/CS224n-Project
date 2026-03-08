@@ -150,5 +150,5 @@ class VisionQAJEPABase(nn.Module):
         if self._num_choices is not None:
             max_c = sim.size(1)
             mask = torch.arange(max_c, device=sim.device) < self._num_choices.unsqueeze(1)
-            sim = sim.masked_fill(~mask, -1e9)
+            sim = sim.masked_fill(~mask, torch.finfo(sim.dtype).min)
         return sim
