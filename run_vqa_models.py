@@ -1,6 +1,6 @@
-"""Train all 5 VQA model variants on ScienceQA sequentially.
+"""Train all VQA model variants on ScienceQA sequentially.
 
-The four JEPA models share a single precomputed CLIP embedding cache
+The five JEPA models share a single precomputed CLIP embedding cache
 (built once by the first model, reused by the rest).  The SOTA cross-
 entropy baseline runs with live CLIP encoding because its text encoding
 strategy (question + all choices concatenated) is structurally different.
@@ -141,6 +141,21 @@ MODEL_DEFS: list[dict] = [
         "csv_stem": "training_metrics_jepa_baseline",
     },
     {
+        "name": "VQA-JEPA-Deep",
+        "file": "vision_qa/models/jepa-deep/model.py",
+        "class": "VisionQAJEPADeep",
+        "type": "jepa",
+        "extra_kwargs": lambda a: {
+            "hidden_dim": a.hidden_dim,
+            "depth": a.jepa_depth,
+            "dropout": a.jepa_deep_dropout,
+            "lr": a.lr,
+        },
+        "metrics_fn": _repr_metrics_cached,
+        "save_name": "best_jepa_deep.pt",
+        "csv_stem": "training_metrics_jepa_deep",
+    },
+    {
         "name": "VQA-JEPA-SigReg",
         "file": "vision_qa/models/jepa-sigreg/model.py",
         "class": "VisionQAJEPASigReg",
@@ -212,7 +227,7 @@ def _cleanup() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train all 5 VQA models on ScienceQA.")
+    parser = argparse.ArgumentParser(description="Train VQA model variants on ScienceQA.")
 
     parser.add_argument("--dataset", default="science_qa")
     parser.add_argument("--cache_dir", default=None, help="HuggingFace dataset cache dir")
@@ -228,6 +243,8 @@ def main() -> None:
     parser.add_argument("--clip_model", default="ViT-B-32")
     parser.add_argument("--clip_pretrained", default="laion2b_s34b_b79k")
     parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--jepa_depth", type=int, default=3)
+    parser.add_argument("--jepa_deep_dropout", type=float, default=0.05)
     parser.add_argument("--moe_num_experts", type=int, default=4)
     parser.add_argument("--sigreg_weight", type=float, default=0.10)
     parser.add_argument("--dropout", type=float, default=0.1)
