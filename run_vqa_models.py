@@ -1,16 +1,27 @@
-"""Train all VQA model variants on ScienceQA sequentially.
+"""Train all VQA model variants on ScienceQA or GQA, with optional multiple seeds.
 
 The five JEPA models share a single precomputed CLIP embedding cache
 (built once by the first model, reused by the rest).  The SOTA cross-
 entropy baseline runs with live CLIP encoding because its text encoding
 strategy (question + all choices concatenated) is structurally different.
 
-Per-model training metrics are saved to individual CSVs, then merged
-into one combined CSV at the end.
+Datasets:
+  - science_qa: derek-thomas/ScienceQA (multiple choice, 2–5 choices).
+  - gqa: lmms-lab/GQA balanced (~943k train); open-ended answers as 5-way MC with distractors.
+
+Task: Same for both—pick correct answer among 5 choices. No model changes needed;
+SOTA uses max_choices=5, JEPA scores over variable choices (5 for GQA).
+
+Per-model per-seed metrics are saved under runs/<dataset>/<model>/seed_<n>/, then
+merged into runs/<dataset>/vqa_all_results.csv with model and seed columns.
 
 Usage
 -----
-    python run_vqa_models.py --epochs 20 --batch_size 32
+    # GQA balanced, 3 seeds (default), all 6 models
+    python run_vqa_models.py --dataset gqa --epochs 20
+
+    # ScienceQA, single seed
+    python run_vqa_models.py --dataset science_qa --seeds 42 --epochs 20
 """
 
 from __future__ import annotations
@@ -148,7 +159,7 @@ MODEL_DEFS: list[dict] = [
         "extra_kwargs": lambda a: {
             "hidden_dim": a.hidden_dim,
             "depth": a.jepa_depth,
-            "dropout": a.jepa_deep_dropout,
+            "dropout": a.dropout,
             "lr": a.lr,
         },
         "metrics_fn": _repr_metrics_cached,
@@ -227,9 +238,16 @@ def _cleanup() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train VQA model variants on ScienceQA.")
-
-    parser.add_argument("--dataset", default="science_qa")
+    parser = argparse.ArgumentParser(
+        description="Train VQA model variants on ScienceQA or GQA. Supports multiple seeds."
+    )
+    parser.add_argument(
+        "--dataset",
+        default="gqa",
+        choices=["science_qa", "gqa"],
+        help="Dataset: science_qa or gqa (GQA uses lmms-lab/GQA balanced, ~943k train)",
+    )
+    parser.add_argument("--subset", default=None, help="Dataset subset (science_qa only; GQA uses balanced)")
     parser.add_argument("--cache_dir", default=None, help="HuggingFace dataset cache dir")
     parser.add_argument("--use_image", action="store_true", default=True)
     parser.add_argument("--no_use_image", action="store_false", dest="use_image")
@@ -237,17 +255,22 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="*",
+        default=[42, 43, 44],
+        help="Seeds to run (default: 42 43 44). Each model is trained once per seed.",
+    )
     parser.add_argument("--device", default="auto")
 
     parser.add_argument("--clip_model", default="ViT-B-32")
     parser.add_argument("--clip_pretrained", default="laion2b_s34b_b79k")
     parser.add_argument("--hidden_dim", type=int, default=1024)
-    parser.add_argument("--jepa_depth", type=int, default=3)
-    parser.add_argument("--jepa_deep_dropout", type=float, default=0.05)
+    parser.add_argument("--jepa_depth", type=int, default=3, help="JEPA-Deep only: number of residual blocks")
     parser.add_argument("--moe_num_experts", type=int, default=4)
     parser.add_argument("--sigreg_weight", type=float, default=0.10)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout (baseline & JEPA-Deep use same for fair comparison)")
 
     parser.add_argument("--embedding_cache_dir", default="precomputed_embeddings",
                         help="Dir to store precomputed CLIP embeddings (shared by all JEPA models)")
@@ -256,103 +279,109 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    save_root = Path(args.save_root)
+    # Per-dataset save dir: runs/gqa/ or runs/science_qa/
+    save_root = Path(args.save_root) / args.dataset
     save_root.mkdir(parents=True, exist_ok=True)
+    if args.dataset == "gqa":
+        args.subset = "balanced"  # GQA uses balanced only (no subset arg for user)
 
     from vision_qa.base import DataSpec, TrainSpec
     from vision_qa.train import prepare_and_run_cached, run_vision_qa_train
 
-    timings: list[tuple[str, float]] = []
-    csv_paths: list[Path] = []
+    timings: list[tuple[str, str, float]] = []  # (model_name, seed, elapsed)
+    csv_paths: list[tuple[dict, int, Path]] = []  # (mdef, seed, path)
 
-    for mdef in MODEL_DEFS:
-        banner = f" {mdef['name']} "
-        print(f"\n{'=' * 60}")
-        print(f"{banner:=^60}")
-        print(f"{'=' * 60}\n")
+    for seed in args.seeds:
+        for mdef in MODEL_DEFS:
+            banner = f" {mdef['name']} seed={seed} "
+            print(f"\n{'=' * 60}")
+            print(f"{banner:=^60}")
+            print(f"{'=' * 60}\n")
 
-        t0 = time.time()
+            t0 = time.time()
 
-        ModelClass = _load_class(mdef["file"], mdef["class"])
-        kwargs = mdef["extra_kwargs"](args)
-        model = ModelClass(
-            clip_model=args.clip_model,
-            clip_pretrained=args.clip_pretrained,
-            **kwargs,
-        )
-
-        run_dir = save_root / mdef["name"] / f"seed_{args.seed}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        metrics_csv = run_dir / f"{mdef['csv_stem']}.csv"
-        csv_paths.append(metrics_csv)
-
-        train_spec = TrainSpec(
-            epochs=args.epochs,
-            device=args.device,
-            seed=args.seed,
-            save_dir=str(run_dir),
-            metrics_csv=str(metrics_csv),
-        )
-
-        if mdef["type"] == "jepa":
-            prepare_and_run_cached(
-                model=model,
-                dataset_name=args.dataset,
-                subset=None,
-                hf_cache_dir=args.cache_dir,
-                use_image=args.use_image,
-                embedding_cache_dir=args.embedding_cache_dir,
-                clip_model_name=args.clip_model,
+            ModelClass = _load_class(mdef["file"], mdef["class"])
+            kwargs = mdef["extra_kwargs"](args)
+            model = ModelClass(
+                clip_model=args.clip_model,
                 clip_pretrained=args.clip_pretrained,
-                precompute_batch_size=args.precompute_batch_size,
-                batch_size=args.batch_size,
-                train_spec=train_spec,
-                extra_eval_metrics=mdef["metrics_fn"],
-                save_name=mdef["save_name"],
-            )
-        else:
-            data = DataSpec(
-                dataset=args.dataset,
-                cache_dir=args.cache_dir,
-                batch_size=args.batch_size,
-                use_image=args.use_image,
-            )
-            run_vision_qa_train(
-                model=model,
-                data=data,
-                train=train_spec,
-                image_transform=model.get_image_transform(),
-                save_name=mdef["save_name"],
+                **kwargs,
             )
 
-        elapsed = time.time() - t0
-        timings.append((mdef["name"], elapsed))
-        print(f"\n{mdef['name']} finished in {elapsed / 60:.1f} min")
+            run_dir = save_root / mdef["name"] / f"seed_{seed}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            metrics_csv = run_dir / f"{mdef['csv_stem']}.csv"
+            csv_paths.append((mdef, seed, metrics_csv))
 
-        del model
-        _cleanup()
+            train_spec = TrainSpec(
+                epochs=args.epochs,
+                device=args.device,
+                seed=seed,
+                save_dir=str(run_dir),
+                metrics_csv=str(metrics_csv),
+            )
+
+            if mdef["type"] == "jepa":
+                prepare_and_run_cached(
+                    model=model,
+                    dataset_name=args.dataset,
+                    subset=args.subset,
+                    hf_cache_dir=args.cache_dir,
+                    use_image=args.use_image,
+                    embedding_cache_dir=args.embedding_cache_dir,
+                    clip_model_name=args.clip_model,
+                    clip_pretrained=args.clip_pretrained,
+                    precompute_batch_size=args.precompute_batch_size,
+                    batch_size=args.batch_size,
+                    train_spec=train_spec,
+                    extra_eval_metrics=mdef["metrics_fn"],
+                    save_name=mdef["save_name"],
+                )
+            else:
+                data = DataSpec(
+                    dataset=args.dataset,
+                    subset=args.subset,
+                    cache_dir=args.cache_dir,
+                    batch_size=args.batch_size,
+                    use_image=args.use_image,
+                )
+                run_vision_qa_train(
+                    model=model,
+                    data=data,
+                    train=train_spec,
+                    image_transform=model.get_image_transform(),
+                    save_name=mdef["save_name"],
+                )
+
+            elapsed = time.time() - t0
+            timings.append((mdef["name"], str(seed), elapsed))
+            print(f"\n{mdef['name']} (seed={seed}) finished in {elapsed / 60:.1f} min")
+
+            del model
+            _cleanup()
 
     # ------------------------------------------------------------------
-    # Combine per-model CSVs into one
+    # Combine per-model per-seed CSVs into one
     # ------------------------------------------------------------------
     combined_csv = save_root / "vqa_all_results.csv"
     all_rows: list[dict[str, str]] = []
 
-    for mdef, csv_path in zip(MODEL_DEFS, csv_paths):
+    for mdef, seed, csv_path in csv_paths:
         if not csv_path.exists():
-            print(f"Warning: CSV not found for {mdef['name']}: {csv_path}")
+            print(f"Warning: CSV not found for {mdef['name']} seed={seed}: {csv_path}")
             continue
         with csv_path.open("r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 row["model"] = mdef["name"]
+                row["seed"] = str(seed)
                 all_rows.append(row)
 
     if all_rows:
-        all_keys: set[str] = set()
+        all_keys = set()
         for row in all_rows:
             all_keys.update(row.keys())
-        fieldnames = ["model"] + sorted(k for k in all_keys if k != "model")
+        fieldnames = ["model", "seed"] + sorted(k for k in all_keys if k not in ("model", "seed"))
         with combined_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -365,10 +394,10 @@ def main() -> None:
     print(f"\n{'=' * 60}")
     print("Training summary")
     print(f"{'=' * 60}")
-    for name, elapsed in timings:
-        print(f"  {name:30s} {elapsed / 60:6.1f} min")
-    total = sum(t for _, t in timings)
-    print(f"  {'TOTAL':30s} {total / 60:6.1f} min")
+    for name, seed, elapsed in timings:
+        print(f"  {name:30s} seed={seed:>3s}  {elapsed / 60:6.1f} min")
+    total = sum(t for _, _, t in timings)
+    print(f"  {'TOTAL':30s}          {total / 60:6.1f} min")
 
 
 if __name__ == "__main__":

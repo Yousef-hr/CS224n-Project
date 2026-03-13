@@ -75,7 +75,7 @@ class VisionQAJEPADeep(VisionQAJEPABase):
         clip_pretrained: str = "laion2b_s34b_b79k",
         hidden_dim: int = 1024,
         depth: int = 3,
-        dropout: float = 0.05,
+        dropout: float = 0.1,
         lr: float = 3e-4,
     ):
         super().__init__(clip_model=clip_model, clip_pretrained=clip_pretrained)

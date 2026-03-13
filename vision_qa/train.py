@@ -393,7 +393,9 @@ def prepare_and_run_cached(
         vqa_cache_exists,
     )
 
-    if not vqa_cache_exists(embedding_cache_dir, dataset_name, clip_model_name, clip_pretrained):
+    cache_dataset_id = f"{dataset_name}__{subset}" if subset else dataset_name
+
+    if not vqa_cache_exists(embedding_cache_dir, cache_dataset_id, clip_model_name, clip_pretrained):
         print("Building VQA embedding cache …")
         train_ds, val_ds, test_ds, _ = load_vision_qa(
             name=dataset_name, subset=subset, cache_dir=hf_cache_dir, use_image=use_image,
@@ -402,7 +404,7 @@ def prepare_and_run_cached(
         model.to(device)
         build_vqa_embedding_cache(
             cache_dir=embedding_cache_dir,
-            dataset_id=dataset_name,
+            dataset_id=cache_dataset_id,
             clip_model_name=clip_model_name,
             clip_pretrained=clip_pretrained,
             model=model,
@@ -419,8 +421,8 @@ def prepare_and_run_cached(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    train_cache = load_vqa_split_cache(embedding_cache_dir, dataset_name, clip_model_name, clip_pretrained, "train")
-    val_cache = load_vqa_split_cache(embedding_cache_dir, dataset_name, clip_model_name, clip_pretrained, "validation")
+    train_cache = load_vqa_split_cache(embedding_cache_dir, cache_dataset_id, clip_model_name, clip_pretrained, "train")
+    val_cache = load_vqa_split_cache(embedding_cache_dir, cache_dataset_id, clip_model_name, clip_pretrained, "validation")
     train_loader, val_loader = build_cached_vqa_loaders(train_cache, val_cache, batch_size)
 
     return run_vision_qa_train_cached(
