@@ -80,7 +80,6 @@ def load_gqa(
         GQA_DATASET_ID,
         configs["train"],
         cache_dir=cache,
-        trust_remote_code=True,
     )
     train_instr = _get_split(_train_raw, "train")
     vocab: set[str] = set()
@@ -98,7 +97,6 @@ def load_gqa(
             GQA_DATASET_ID,
             config,
             cache_dir=cache,
-            trust_remote_code=True,
         )
         ds = _get_split(raw, "train")
         id_to_idx = {}
@@ -146,14 +144,12 @@ def load_gqa(
         GQA_DATASET_ID,
         configs["validation"],
         cache_dir=cache,
-        trust_remote_code=True,
     )
     val_instr = _get_split(_val_raw, "train")
     _test_raw = load_dataset(
         GQA_DATASET_ID,
         configs["test"],
         cache_dir=cache,
-        trust_remote_code=True,
     )
     test_instr = _get_split(_test_raw, "train")
 
