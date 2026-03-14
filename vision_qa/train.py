@@ -326,7 +326,10 @@ def run_vision_qa_train_cached(
 
         extra: dict[str, float] = {}
         if extra_eval_metrics is not None:
-            extra = extra_eval_metrics(model, val_loader, ctx)
+            try:
+                extra = extra_eval_metrics(model, val_loader, ctx)
+            except Exception as e:
+                print(f"  Warning: extra eval metrics failed: {e}")
 
         row = {
             "epoch": float(ep + 1),
@@ -356,7 +359,8 @@ def run_vision_qa_train_cached(
             )
             print(f"  Saved best checkpoint: {save_dir / save_name} (acc={acc:.4f})")
 
-    write_metrics_csv(metrics_csv_path, metrics_rows)
+        write_metrics_csv(metrics_csv_path, metrics_rows)
+
     print(f"Saved training metrics CSV: {metrics_csv_path}")
 
     return {
