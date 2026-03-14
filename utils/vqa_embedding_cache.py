@@ -162,10 +162,10 @@ class CachedVQADataset(Dataset):
     """Dataset backed by precomputed CLIP embeddings."""
 
     def __init__(self, cache_data: dict):
-        img = cache_data["image_emb"].float()
-        q = cache_data["question_emb"].float()
+        img = cache_data["image_emb"]
+        q = cache_data["question_emb"]
         self.fused_emb = torch.cat([img, q], dim=1)
-        self.choice_embs = cache_data["choice_embs"].float()
+        self.choice_embs = cache_data["choice_embs"]
         self.answer_indices = cache_data["answer_indices"]
         self.num_choices = cache_data["num_choices"]
 
