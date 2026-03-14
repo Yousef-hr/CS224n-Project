@@ -224,8 +224,8 @@ def train_epoch_cached(
     n = 0
 
     for fused_emb, choice_embs, answer_indices, num_choices in tqdm(loader, desc="Train"):
-        fused_emb = fused_emb.to(ctx.device)
-        choice_embs = choice_embs.to(ctx.device)
+        fused_emb = fused_emb.to(ctx.device, dtype=torch.float32)
+        choice_embs = choice_embs.to(ctx.device, dtype=torch.float32)
         answer_indices = answer_indices.to(ctx.device)
         num_choices = num_choices.to(ctx.device)
 
@@ -262,8 +262,8 @@ def eval_epoch_cached(
     n = 0
 
     for fused_emb, choice_embs, answer_indices, num_choices in tqdm(loader, desc="Eval"):
-        fused_emb = fused_emb.to(ctx.device)
-        choice_embs = choice_embs.to(ctx.device)
+        fused_emb = fused_emb.to(ctx.device, dtype=torch.float32)
+        choice_embs = choice_embs.to(ctx.device, dtype=torch.float32)
         answer_indices = answer_indices.to(ctx.device)
         num_choices = num_choices.to(ctx.device)
 

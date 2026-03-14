@@ -64,8 +64,8 @@ def _repr_metrics_cached(model, loader, ctx) -> dict[str, float]:
     model.eval_mode()
     all_pred, all_tgt = [], []
     for fused_emb, choice_embs, answer_indices, num_choices in loader:
-        fused_emb = fused_emb.to(ctx.device)
-        choice_embs = choice_embs.to(ctx.device)
+        fused_emb = fused_emb.to(ctx.device, dtype=torch.float32)
+        choice_embs = choice_embs.to(ctx.device, dtype=torch.float32)
         answer_indices = answer_indices.to(ctx.device)
         model._choice_embs = choice_embs
         model._num_choices = num_choices.to(ctx.device)
@@ -101,8 +101,8 @@ def _moe_metrics_cached(model, loader, ctx) -> dict[str, float]:
     model.eval_mode()
     all_pred, all_tgt, all_gate = [], [], []
     for fused_emb, choice_embs, answer_indices, num_choices in loader:
-        fused_emb = fused_emb.to(ctx.device)
-        choice_embs = choice_embs.to(ctx.device)
+        fused_emb = fused_emb.to(ctx.device, dtype=torch.float32)
+        choice_embs = choice_embs.to(ctx.device, dtype=torch.float32)
         answer_indices = answer_indices.to(ctx.device)
         model._choice_embs = choice_embs
         model._num_choices = num_choices.to(ctx.device)
