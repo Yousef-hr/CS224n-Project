@@ -1,6 +1,4 @@
-"""
-Evaluate vision QA baseline (load checkpoint, run on test/val).
-"""
+"""Evaluate JEPA MoE + SigReg VQA (load checkpoint, run on test/val)."""
 
 import argparse
 from pathlib import Path
@@ -8,7 +6,7 @@ from pathlib import Path
 from vision_qa.base import DataSpec, EvalSpec
 from vision_qa.eval import run_vision_qa_eval
 
-from .model import VisionQABaseline
+from .model import VisionQAJEPAMoESigReg
 
 
 def main() -> None:
@@ -18,23 +16,30 @@ def main() -> None:
     parser.add_argument("--cache_dir", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--checkpoint", type=str, default=None, required=True, help="Path to checkpoint .pt")
+    parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--split", type=str, default="test", choices=["validation", "test"])
-    parser.add_argument("--report_breakdown", action="store_true", help="Report accuracy by subject/grade")
-    parser.add_argument("--no_strict", action="store_true", help="Load checkpoint with strict=False")
+    parser.add_argument("--report_breakdown", action="store_true")
+    parser.add_argument("--no_strict", action="store_true")
     parser.add_argument("--use_image", action="store_true", default=True)
     parser.add_argument("--no_use_image", action="store_false", dest="use_image")
-
+    parser.add_argument("--clip_model", type=str, default="ViT-B-32")
+    parser.add_argument("--clip_pretrained", type=str, default="laion2b_s34b_b79k")
+    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--moe_num_experts", type=int, default=4)
+    parser.add_argument("--sigreg_weight", type=float, default=0.10)
+    parser.add_argument("--sigreg_num_slices", type=int, default=256)
+    parser.add_argument("--sigreg_lmbd", type=float, default=10.0)
     args = parser.parse_args()
 
-    model = VisionQABaseline(
-        clip_model="ViT-B-32",
-        clip_pretrained="laion2b_s34b_b79k",
-        hidden_dim=1024,
-        dropout=0.1,
-        lr=3e-4,
+    model = VisionQAJEPAMoESigReg(
+        clip_model=args.clip_model,
+        clip_pretrained=args.clip_pretrained,
+        hidden_dim=args.hidden_dim,
+        moe_num_experts=args.moe_num_experts,
+        num_slices=args.sigreg_num_slices,
+        lmbd=args.sigreg_lmbd,
+        sigreg_weight=args.sigreg_weight,
     )
-    image_transform = model.get_image_transform()
 
     data = DataSpec(
         dataset=args.dataset,
@@ -44,17 +49,13 @@ def main() -> None:
         num_workers=0,
         use_image=args.use_image,
     )
-
-    eval_spec = EvalSpec(
-        device=args.device,
-        report_breakdown=args.report_breakdown,
-    )
+    eval_spec = EvalSpec(device=args.device, report_breakdown=args.report_breakdown)
 
     run_vision_qa_eval(
         model=model,
         data=data,
         eval_spec=eval_spec,
-        image_transform=image_transform,
+        image_transform=model.get_image_transform(),
         checkpoint=Path(args.checkpoint),
         strict=not args.no_strict,
         split=args.split,

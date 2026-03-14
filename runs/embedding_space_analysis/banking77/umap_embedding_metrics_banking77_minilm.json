@@ -1,0 +1,13 @@
+{
+  "dataset": "banking77",
+  "subset": null,
+  "split": "test",
+  "encoder": "minilm",
+  "sample_size": 2000,
+  "n_classes": 77,
+  "umap": {
+    "n_neighbors": 15,
+    "min_dist": 0.1,
+    "metric": "cosine"
+  }
+}

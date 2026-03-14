@@ -1,0 +1,13 @@
+{
+  "dataset": "banking77",
+  "subset": null,
+  "split": "test",
+  "encoder": "openclip",
+  "sample_size": 3080,
+  "n_classes": 77,
+  "tsne": {
+    "perplexity": 30.0,
+    "learning_rate": 200.0,
+    "max_iter": 1000
+  }
+}
