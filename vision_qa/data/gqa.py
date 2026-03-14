@@ -115,7 +115,7 @@ def load_gqa(
 
     rng = random.Random(distractor_seed)
 
-    def make_get_item(instructions_ds, images_ds, id_to_idx: dict):
+    def make_get_item(images_ds, id_to_idx: dict):
         def get_item(ex: dict, use_image: bool = True) -> tuple[Any, str, list[str], int]:
             image = None
             if use_image and images_ds is not None:
