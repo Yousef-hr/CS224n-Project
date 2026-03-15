@@ -29,7 +29,7 @@ torchrun --nnodes 1 --node_rank 0 --nproc_per_node 1 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
-    --max_steps 3000 \
+    --max_steps 40000 \
     --save_strategy "steps" \
     --save_steps 1000 \
     --evaluation_strategy "steps" \

@@ -126,9 +126,9 @@ def main():
     parser.add_argument("--train-data-gcs", required=True, help="gs://... training json/jsonl file")
     parser.add_argument("--valid-data-gcs", required=True, help="gs://... validation json/jsonl file")
     parser.add_argument("--run-name", default=f"calm-jepa-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-    # Default to a us-west2-friendly GPU config. Users can still override these.
-    parser.add_argument("--machine-type", default="g2-standard-4")
-    parser.add_argument("--accelerator-type", default="NVIDIA_L4")
+    # Default to a single-A100 training setup. Users can still override these.
+    parser.add_argument("--machine-type", default="a2-highgpu-1g")
+    parser.add_argument("--accelerator-type", default="NVIDIA_TESLA_A100")
     parser.add_argument("--accelerator-count", type=int, default=1)
     parser.add_argument("--service-account", default=None)
     args = parser.parse_args()
@@ -171,7 +171,7 @@ def main():
           --per_device_train_batch_size 8 \\
           --per_device_eval_batch_size 4 \\
           --gradient_accumulation_steps 1 \\
-          --max_steps 2000 \\
+          --max_steps 20000 \\
           --save_strategy steps \\
           --save_steps 1000 \\
           --evaluation_strategy steps \\
@@ -221,7 +221,7 @@ def main():
           --per_device_train_batch_size 8 \\
           --per_device_eval_batch_size 4 \\
           --gradient_accumulation_steps 1 \\
-          --max_steps 2000 \\
+          --max_steps 40000 \\
           --save_strategy steps \\
           --save_steps 1000 \\
           --evaluation_strategy steps \\
@@ -266,7 +266,7 @@ def main():
           --per_device_train_batch_size 8 \\
           --per_device_eval_batch_size 4 \\
           --gradient_accumulation_steps 1 \\
-          --max_steps 3000 \\
+          --max_steps 40000 \\
           --save_strategy steps \\
           --save_steps 1000 \\
           --evaluation_strategy steps \\

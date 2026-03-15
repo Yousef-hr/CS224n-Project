@@ -561,6 +561,61 @@ def main():
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
 
+        patch_size = int(model.config.patch_size)
+
+        def preprocess_logits_for_metrics(logits, labels):
+            if isinstance(logits, tuple):
+                logits = logits[0]
+            return torch.argmax(logits, dim=-1)
+
+        def compute_metrics(eval_pred):
+            predictions = eval_pred.predictions
+            if isinstance(predictions, tuple):
+                predictions = predictions[0]
+            predictions = torch.as_tensor(predictions, dtype=torch.long).reshape(-1)
+            labels = torch.as_tensor(eval_pred.label_ids, dtype=torch.long).reshape(-1)
+
+            if predictions.numel() != labels.numel():
+                # Be defensive against shape/layout differences from Trainer gather.
+                # We align by truncating to the shared prefix length.
+                shared = min(predictions.numel(), labels.numel())
+                predictions = predictions[:shared]
+                labels = labels[:shared]
+
+            valid_mask = labels != IGNORE_INDEX
+            valid_count = int(valid_mask.sum().item())
+            if valid_count == 0:
+                return {
+                    "token_acc": 0.0,
+                    "patch_exact_match": 0.0,
+                    **{f"prefix_exact_match_{idx}": 0.0 for idx in range(1, patch_size + 1)},
+                }
+
+            token_acc = float((predictions[valid_mask] == labels[valid_mask]).float().mean().item())
+
+            valid_labels = labels[valid_mask]
+            valid_predictions = predictions[valid_mask]
+            usable_tokens = (valid_labels.shape[0] // patch_size) * patch_size
+            if usable_tokens == 0:
+                return {
+                    "token_acc": token_acc,
+                    "patch_exact_match": 0.0,
+                    **{f"prefix_exact_match_{idx}": 0.0 for idx in range(1, patch_size + 1)},
+                }
+            valid_labels = valid_labels[:usable_tokens].reshape(-1, patch_size)
+            valid_predictions = valid_predictions[:usable_tokens].reshape(-1, patch_size)
+            per_patch_matches = (valid_predictions == valid_labels)
+
+            metrics = {
+                "token_acc": token_acc,
+                "patch_exact_match": float(per_patch_matches.all(dim=-1).float().mean().item()),
+            }
+            for idx in range(1, patch_size + 1):
+                metrics[f"prefix_exact_match_{idx}"] = float(
+                    per_patch_matches[:, :idx].all(dim=-1).float().mean().item()
+                )
+            return metrics
+
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
@@ -569,7 +624,8 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=default_data_collator,
-        preprocess_logits_for_metrics=None
+        compute_metrics=compute_metrics if training_args.do_eval else None,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics if training_args.do_eval else None
     )
 
     # Training
@@ -593,11 +649,13 @@ def main():
         logger.info("*** Evaluate ***")
 
         metrics = trainer.evaluate()
+        metrics["decoded_ce"] = metrics["eval_loss"]
 
         try:
-            perplexity = math.exp(metrics["eval_loss"])
+            perplexity = math.exp(metrics["decoded_ce"])
         except OverflowError:
             perplexity = float("inf")
+        metrics["decoded_ppl"] = perplexity
         metrics["perplexity"] = perplexity
 
         trainer.log_metrics("eval", metrics)

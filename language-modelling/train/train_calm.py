@@ -565,15 +565,49 @@ def main():
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
+        patch_size = int(model.config.patch_size)
 
         def compute_metrics(eval_pred):
-            brier1, brier2, brier3, brier4 = eval_pred.predictions
+            predictions = eval_pred.predictions
+            if predictions is None:
+                return {}
+            if isinstance(predictions, tuple):
+                prediction_items = list(predictions)
+            else:
+                prediction_items = [predictions]
+
+            if len(prediction_items) < 4:
+                return {}
+
+            brier1, brier2, brier3, brier4 = prediction_items[:4]
             metrics = {}
-            metrics["brier1"] = brier1.mean()
-            metrics["brier2"] = brier2.mean()
-            metrics["brier3"] = brier3.mean()
-            metrics["brier4"] = brier4.mean()
-            metrics["brierLM"] = max(metrics["brier1"] * metrics["brier2"] * metrics["brier3"] * metrics["brier4"], 0) ** 0.25
+
+            metrics["brier1"] = float(torch.as_tensor(brier1).mean().item())
+            metrics["brier2"] = float(torch.as_tensor(brier2).mean().item())
+            metrics["brier3"] = float(torch.as_tensor(brier3).mean().item())
+            metrics["brier4"] = float(torch.as_tensor(brier4).mean().item())
+            # Clamp each term to avoid sign artifacts in the aggregate.
+            brier_terms = [max(metrics[f"brier{i}"], 0.0) for i in range(1, 5)]
+            metrics["brierLM"] = float((brier_terms[0] * brier_terms[1] * brier_terms[2] * brier_terms[3]) ** 0.25)
+
+            if len(prediction_items) >= 8:
+                decoded_ce, token_acc, patch_exact_match, prefix_exact_match = prediction_items[4:8]
+                metrics["decoded_ce"] = float(torch.as_tensor(decoded_ce).mean().item())
+                try:
+                    metrics["decoded_ppl"] = float(math.exp(metrics["decoded_ce"]))
+                except OverflowError:
+                    metrics["decoded_ppl"] = float("inf")
+                metrics["token_acc"] = float(torch.as_tensor(token_acc).mean().item())
+                metrics["patch_exact_match"] = float(torch.as_tensor(patch_exact_match).mean().item())
+
+                prefix_exact_match = torch.as_tensor(prefix_exact_match, dtype=torch.float32).reshape(-1)
+                if patch_size > 0 and prefix_exact_match.numel() >= patch_size:
+                    usable = (prefix_exact_match.numel() // patch_size) * patch_size
+                    prefix_values = prefix_exact_match[:usable].reshape(-1, patch_size).mean(dim=0)
+                else:
+                    prefix_values = prefix_exact_match
+                for idx, value in enumerate(prefix_values, start=1):
+                    metrics[f"prefix_exact_match_{idx}"] = float(value.item())
             return metrics
 
     # Initialize our Trainer
@@ -608,12 +642,6 @@ def main():
         logger.info("*** Evaluate ***")
 
         metrics = trainer.evaluate()
-
-        try:
-            perplexity = math.exp(metrics["eval_loss"])
-        except OverflowError:
-            perplexity = float("inf")
-        metrics["perplexity"] = perplexity
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)

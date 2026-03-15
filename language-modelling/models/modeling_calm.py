@@ -52,6 +52,10 @@ class CustomCausalLMOutput(CausalLMOutputWithPast):
     brier2: torch.FloatTensor = None
     brier3: torch.FloatTensor = None
     brier4: torch.FloatTensor = None
+    decoded_ce: torch.FloatTensor = None
+    token_acc: torch.FloatTensor = None
+    patch_exact_match: torch.FloatTensor = None
+    prefix_exact_match: torch.FloatTensor = None
     
 class CALM(LlamaPreTrainedModel):
     """
@@ -81,7 +85,9 @@ class CALM(LlamaPreTrainedModel):
             outputs: The output object from the transformer, containing past_key_values.
             loss: The energy loss for latent vectors.
         """
-        max_eval_length = 4
+        # Keep Brier evaluation fixed to four-token prefixes for compatibility
+        # with prior CALM runs, while decoded prefix metrics are patch-size aware.
+        brier_eval_length = 4
         patch_size = self.patch_size
         batch_size = targets.shape[0]
         seq_length = targets.shape[1] // patch_size
@@ -94,26 +100,35 @@ class CALM(LlamaPreTrainedModel):
         predictions_1 = torch.argmax(logits_1, dim=-1).reshape(batch_size, seq_length, patch_size)
         predictions_2 = torch.argmax(logits_2, dim=-1).reshape(batch_size, seq_length, patch_size)
 
+        token_same_target = (predictions_1 == targets)
+        decoded_ce = F.cross_entropy(
+            logits_1.reshape(-1, logits_1.shape[-1]),
+            targets.reshape(-1),
+        )
+        token_acc = token_same_target.float().mean()
+        patch_exact_match = token_same_target.all(dim=-1).float().mean()
+        prefix_exact_match = torch.cumprod(token_same_target.float(), dim=-1).mean(dim=(0, 1))
+
         # CASE 1: The model's patch size is 4 or more.
         # In this case, each generation step produces enough tokens to calculate brier-4 directly.
-        if patch_size >= max_eval_length:
+        if patch_size >= brier_eval_length:
             acc_1 = torch.cumprod((predictions_1 == targets).float(), dim = -1)
             acc_2 = torch.cumprod((predictions_2 == targets).float(), dim = -1)
             var = torch.cumprod((predictions_1 == predictions_2).float(), dim = -1)
-            brier_estimations = (acc_1 + acc_2 - var).mean(dim=(0,1))
+            brier_estimations = (acc_1 + acc_2 - var).mean(dim=(0,1))[:brier_eval_length]
             
         # CASE 2: The model's patch size is less than 4.
         # We need to auto-regressively generate multiple patches to get a 4-token sequence.
         else:
             # how many steps are needed to produce 4 tokens.
-            num_steps_to_cover = math.ceil(max_eval_length / patch_size)
+            num_steps_to_cover = math.ceil(brier_eval_length / patch_size)
 
             # --- Calculate the accuracy part of the Brier score (1{x=y}) ---
             predictions_1_cat = torch.cat([predictions_1[:, i:-(num_steps_to_cover-i), :] for i in range(num_steps_to_cover)], dim = -1)
             predictions_2_cat = torch.cat([predictions_2[:, i:-(num_steps_to_cover-i), :] for i in range(num_steps_to_cover)], dim = -1)
             targets_cat = torch.cat([targets[:, i:-(num_steps_to_cover-i), :] for i in range(num_steps_to_cover)], dim = -1)
-            acc_1 = torch.cumprod((predictions_1_cat == targets_cat).float(), dim = -1)[:, :, :max_eval_length]
-            acc_2 = torch.cumprod((predictions_2_cat == targets_cat).float(), dim = -1)[:, :, :max_eval_length]
+            acc_1 = torch.cumprod((predictions_1_cat == targets_cat).float(), dim = -1)[:, :, :brier_eval_length]
+            acc_2 = torch.cumprod((predictions_2_cat == targets_cat).float(), dim = -1)[:, :, :brier_eval_length]
 
             global_cache = outputs.past_key_values
             brier_estimations = []
@@ -122,7 +137,7 @@ class CALM(LlamaPreTrainedModel):
             # Loop over every possible starting position in the sequence.
             for i in range(seq_length - num_steps_to_cover):
                 prefix_same = torch.ones(batch_size, dtype=torch.bool, device=latent_predictions.device)
-                token_same = torch.empty(batch_size, max_eval_length, dtype=torch.bool, device=latent_predictions.device)
+                token_same = torch.empty(batch_size, brier_eval_length, dtype=torch.bool, device=latent_predictions.device)
                 for j in range(num_steps_to_cover):
                     if j == 0:
                         next_tokens = torch.stack((predictions_1[:, i, :], predictions_2[:, i, :]), dim = 0)
@@ -149,7 +164,7 @@ class CALM(LlamaPreTrainedModel):
                         window_size = patch_size
                     else:
                         # The final patch might be shorter than a full patch_size
-                        window_size = 4 - (patch_size * (num_steps_to_cover - 1))
+                        window_size = brier_eval_length - (patch_size * (num_steps_to_cover - 1))
 
                     start_idx = j * patch_size
                     end_idx = start_idx + window_size
@@ -163,7 +178,7 @@ class CALM(LlamaPreTrainedModel):
 
                     if not torch.any(prefix_same):
                         # Fill the rest of the token sameness tensor with False
-                        if end_idx < max_eval_length:
+                        if end_idx < brier_eval_length:
                             token_same[:, end_idx:] = False
                         break
 
@@ -180,6 +195,10 @@ class CALM(LlamaPreTrainedModel):
             brier2=brier_estimations[1],
             brier3=brier_estimations[2],
             brier4=brier_estimations[3],
+            decoded_ce=decoded_ce,
+            token_acc=token_acc,
+            patch_exact_match=patch_exact_match,
+            prefix_exact_match=prefix_exact_match,
         )
         
 
