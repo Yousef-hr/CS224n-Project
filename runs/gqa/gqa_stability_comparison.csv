@@ -1,0 +1,6 @@
+model,epochs_before_collapse,best_eval_acc,acc_delta_vs_baseline,stability_rank,performance_rank
+VQA-JEPA-MoE,19,0.9267,+0.40%,1,1
+VQA-JEPA-Baseline,15,0.9227,baseline,2,4
+VQA-JEPA-SigReg,13,0.9240,+0.13%,3,3
+VQA-JEPA-MoE-SigReg,9,0.9259,+0.32%,4,2
+VQA-JEPA-Deep,1,0.9048,-1.79%,5,5
