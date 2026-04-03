@@ -10,9 +10,13 @@ def __covariance__(x: torch.Tensor) -> torch.Tensor:
 def covariance_spectrum(x: torch.Tensor) -> torch.Tensor:
     """
     Returns the eigenvalues of the covariance matrix of the input tensor.
+    Falls back to SVD if eigvalsh fails on ill-conditioned matrices.
     """
     cov = __covariance__(x)
-    eigvals = torch.linalg.eigvalsh(cov).real
+    try:
+        eigvals = torch.linalg.eigvalsh(cov).real
+    except torch._C._LinAlgError:
+        eigvals = torch.linalg.svdvals(cov)
     return torch.sort(torch.clamp(eigvals, min=0.0), descending=True).values
 
 

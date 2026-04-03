@@ -30,7 +30,7 @@ def main() -> None:
     model = VisionQABaseline(
         clip_model="ViT-B-32",
         clip_pretrained="laion2b_s34b_b79k",
-        hidden_dim=512,
+        hidden_dim=1024,
         dropout=0.1,
         lr=3e-4,
     )

@@ -1,0 +1,13 @@
+{
+  "dataset": "clinc_oos",
+  "subset": null,
+  "split": "test",
+  "encoder": "minilm",
+  "sample_size": 4700,
+  "n_classes": 151,
+  "umap": {
+    "n_neighbors": 15,
+    "min_dist": 0.1,
+    "metric": "cosine"
+  }
+}

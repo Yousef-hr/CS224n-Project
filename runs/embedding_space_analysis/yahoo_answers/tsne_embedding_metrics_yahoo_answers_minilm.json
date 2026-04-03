@@ -1,0 +1,13 @@
+{
+  "dataset": "yahoo_answers",
+  "subset": null,
+  "split": "test",
+  "encoder": "minilm",
+  "sample_size": 2000,
+  "n_classes": 10,
+  "tsne": {
+    "perplexity": 30.0,
+    "learning_rate": 200.0,
+    "max_iter": 1000
+  }
+}

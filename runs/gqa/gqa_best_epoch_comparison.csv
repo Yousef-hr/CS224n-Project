@@ -1,0 +1,6 @@
+model,best_eval_acc,best_epoch,eval_alignment_loss,train_loss_at_best,pred_effective_rank,target_effective_rank,variance_ratio,expert_usage_entropy_norm,cond_routing_entropy_norm
+VQA-JEPA-Baseline,0.9227,4,0.0710,0.1138,22.30,52.28,0.573,n/a,n/a
+VQA-JEPA-Deep,0.9048,1,0.0836,0.0815,16.44,52.28,0.446,n/a,n/a
+VQA-JEPA-SigReg,0.9240,4,0.0711,0.1141,22.48,52.28,0.586,n/a,n/a
+VQA-JEPA-MoE,0.9267,7,0.0700,0.0642,22.59,52.28,0.579,0.828,0.675
+VQA-JEPA-MoE-SigReg,0.9259,4,0.0710,0.0672,21.34,52.28,0.578,0.856,0.704

@@ -74,3 +74,46 @@ class BCS_SIGReg_Loss(nn.Module):
             "bcs_loss": bcs, 
             "invariance_loss": invariance_loss
         }
+
+
+def sigreg_gaussian_only(
+    z: torch.Tensor,
+    num_slices: int = 128,
+    step: int = 0,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """
+    SIGReg regularizer on predicted representations only.
+
+    Projects z onto random directions and penalizes deviation from a standard
+    Gaussian distribution via the Epps-Pulley statistic.
+    """
+    if z.dim() != 2:
+        raise ValueError(f"Expected z with shape [N, D], got {tuple(z.shape)}")
+
+    with torch.no_grad():
+        g = torch.Generator(device=z.device)
+        g.manual_seed(int(step))
+        projection = torch.randn((z.size(1), num_slices), device=z.device, generator=g)
+        projection = projection / (projection.norm(p=2, dim=0, keepdim=True) + eps)
+
+    z_centered = z - z.mean(dim=0, keepdim=True)
+    z_scaled = z_centered / (z_centered.std(dim=0, keepdim=True, unbiased=False) + eps)
+    projected = z_scaled @ projection
+    return epps_pulley(projected).mean()
+
+
+class SIGRegGaussianOnly(nn.Module):
+    """
+    Module wrapper for single-input SIGReg.
+    """
+
+    def __init__(self, num_slices: int = 128):
+        super().__init__()
+        self.num_slices = num_slices
+        self.step = 0
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        loss = sigreg_gaussian_only(z, num_slices=self.num_slices, step=self.step)
+        self.step += 1
+        return loss

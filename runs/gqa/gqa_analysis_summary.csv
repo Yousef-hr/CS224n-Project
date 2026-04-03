@@ -1,0 +1,6 @@
+model,valid_epochs,best_eval_acc,best_epoch,final_valid_eval_acc,final_valid_epoch,train_loss_at_best,eval_loss_at_best,collapsed_at_epoch,notes
+VQA-JEPA-Baseline,15,0.9227,4,0.9153,15,0.1138,0.0710,16,Stable for 15 epochs then NaN collapse
+VQA-JEPA-Deep,1,0.9048,1,0.9048,1,0.0815,0.0836,2,Collapsed after 1 epoch - too deep/unstable
+VQA-JEPA-SigReg,13,0.9240,4,0.9155,13,0.1141,0.0711,14,Slightly better peak than baseline; collapsed 2 epochs earlier
+VQA-JEPA-MoE,19,0.9267,7,0.9195,19,0.0642,0.0706,20,Best accuracy AND most stable; expert routing entropy decreasing (specialization)
+VQA-JEPA-MoE-SigReg,9,0.9259,4,0.9228,9,0.0634,0.0701,10,Good peak but collapsed much earlier than MoE alone

@@ -17,6 +17,9 @@ vision_qa_registry: dict[str, dict[str, Any]] = {
         "get_item": science_qa_get_item,
         "get_labels": science_qa_get_labels,
     },
+    "gqa": {
+        "loader": "gqa",
+    },
 }
 
 
@@ -106,6 +109,11 @@ def load_vision_qa(
 
     recipe = vision_qa_registry[name]
     cache = str(cache_dir) if cache_dir is not None else None
+
+    if recipe.get("loader") == "gqa":
+        from .gqa import load_gqa
+        return load_gqa(cache_dir=cache, use_image=use_image)
+
     dataset_id = recipe["id"]
     subset = subset or recipe.get("subset")
     get_item = recipe["get_item"]

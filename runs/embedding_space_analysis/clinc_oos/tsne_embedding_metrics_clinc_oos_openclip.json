@@ -1,0 +1,13 @@
+{
+  "dataset": "clinc_oos",
+  "subset": null,
+  "split": "test",
+  "encoder": "openclip",
+  "sample_size": 4700,
+  "n_classes": 151,
+  "tsne": {
+    "perplexity": 30.0,
+    "learning_rate": 200.0,
+    "max_iter": 1000
+  }
+}
